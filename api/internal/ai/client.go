@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/LSUDOKOS/signal/internal/domain"
 	"github.com/sashabaranov/go-openai"
@@ -51,7 +50,11 @@ func (c *Client) SummarizeFocus(ctx context.Context, messages []string) (*domain
 		return nil, fmt.Errorf("openai focus summary: %w", err)
 	}
 
-	return parseFocusResponse(resp.Choices[0].Message.Content), nil
+	content, err := extractContent(resp)
+	if err != nil {
+		return nil, fmt.Errorf("focus summary: %w", err)
+	}
+	return parseFocusResponse(content), nil
 }
 
 // AnalyzeTone performs tone analysis on an ambiguous workplace message.
@@ -75,7 +78,11 @@ func (c *Client) AnalyzeTone(ctx context.Context, message string) (*domain.ToneA
 		return nil, fmt.Errorf("openai tone analysis: %w", err)
 	}
 
-	return parseToneResponse(resp.Choices[0].Message.Content), nil
+	content, err := extractContent(resp)
+	if err != nil {
+		return nil, fmt.Errorf("tone analysis: %w", err)
+	}
+	return parseToneResponse(content), nil
 }
 
 // CatchUpSummary generates a "What You Missed" digest from search results.
@@ -101,7 +108,7 @@ func (c *Client) CatchUpSummary(ctx context.Context, messages []string) (string,
 		return "", fmt.Errorf("openai catchup summary: %w", err)
 	}
 
-	return resp.Choices[0].Message.Content, nil
+	return extractContent(resp)
 }
 
 // GenerateDigestContent categorizes messages into urgent/action/FYI buckets.
@@ -135,7 +142,7 @@ Format each category as a bullet list. If empty, say "None."`, strings.Join(mess
 		return "", fmt.Errorf("openai digest: %w", err)
 	}
 
-	return resp.Choices[0].Message.Content, nil
+	return extractContent(resp)
 }
 
 func buildFocusPrompt(messages []string) string {
@@ -247,12 +254,15 @@ func (c *Client) Chat(ctx context.Context, systemPrompt, userPrompt string, maxT
 	if err != nil {
 		return "", fmt.Errorf("openai chat: %w", err)
 	}
+	return extractContent(resp)
+}
+
+// extractContent safely extracts the first choice's content, guarding against empty choices.
+func extractContent(resp openai.ChatCompletionResponse) (string, error) {
+	if len(resp.Choices) == 0 {
+		return "", fmt.Errorf("no choices returned by AI model")
+	}
 	return resp.Choices[0].Message.Content, nil
 }
 
-// RateLimitInfo holds AI rate limit state.
-type RateLimitInfo struct {
-	RequestsThisMinute int
-	Limit              int
-	ResetTime          time.Time
-}
+

@@ -80,10 +80,7 @@ func (f *FocusModeService) HandleBlockAction(ctx context.Context, action *slack.
 	case "focus_mute_30":
 		return f.muteChannel(ctx, channelID, user.SlackUserID)
 	case "focus_open_thread":
-		_ = channelID
-		_ = user
-		// Future: open thread with summary
-		return nil
+		return f.sendSummaryToDM(ctx, channelID, user.SlackUserID)
 	}
 
 	return nil
@@ -210,6 +207,34 @@ func (f *FocusModeService) sendFullSummary(ctx context.Context, channelID, userI
 		},
 		"Full Summary",
 	)
+}
+
+func (f *FocusModeService) sendSummaryToDM(ctx context.Context, channelID, userID string) error {
+	messages, err := f.slack.GetChannelHistory(channelID, 50)
+	if err != nil {
+		return fmt.Errorf("get history: %w", err)
+	}
+
+	var messageTexts []string
+	for _, msg := range messages {
+		if msg.Text != "" {
+			messageTexts = append(messageTexts, msg.Text)
+		}
+	}
+
+	summary, err := f.ai.SummarizeFocus(ctx, messageTexts)
+	if err != nil {
+		slog.Error("ai focus summary failed", "error", err)
+		return nil // Don't break the button flow
+	}
+
+	dmChannel, err := f.slack.OpenDMChannel(userID)
+	if err != nil {
+		return fmt.Errorf("open dm: %w", err)
+	}
+
+	blocks := buildFocusSummaryBlockKit(summary, channelID)
+	return f.slack.PostMessage(dmChannel, blocks, "Focus Summary")
 }
 
 func (f *FocusModeService) muteChannel(ctx context.Context, channelID, userID string) error {

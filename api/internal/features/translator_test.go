@@ -2,8 +2,11 @@ package features
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/LSUDOKOS/signal/internal/ai"
 	"github.com/LSUDOKOS/signal/internal/domain"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
@@ -195,9 +198,17 @@ func TestHandleMessage_NoAmbiguousPhrase(t *testing.T) {
 	}
 }
 
-// TestHandleMessage_AmbiguousPhraseNoMention verifies no DM sent when no @mentions.
+// TestHandleMessage_AmbiguousPhraseNoMention verifies translation sent to user when no @mentions.
 func TestHandleMessage_AmbiguousPhraseNoMention(t *testing.T) {
-	svc := &TranslatorService{}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"choices":[{"message":{"content":"- Tone: Neutral\n- Intent: Test\n- Action: None\n- Note: Test"}}]}`))
+	}))
+	defer ts.Close()
+
+	svc := &TranslatorService{
+		slack: &mockSlackAPI{},
+		ai:    ai.NewClient("test-key", "test-model", ts.URL),
+	}
 	event := &slackevents.MessageEvent{
 		Text:    "Per my last email, this needs to be done.",
 		Channel: "C123",

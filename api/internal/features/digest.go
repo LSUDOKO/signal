@@ -118,6 +118,22 @@ func (d *DigestService) SendScheduledDigest(ctx context.Context, u domain.User, 
 		}
 	}
 
+	// Use AI to categorize messages into threads/group discussions
+	if len(fyi) > 0 {
+		var messageTexts []string
+		for _, item := range fyi {
+			messageTexts = append(messageTexts, fmt.Sprintf("#%s — %s: %s", item.Channel, item.From, item.Message))
+		}
+		aiResult, err := d.ai.GenerateDigestContent(ctx, messageTexts)
+		if err == nil && aiResult != "" {
+			threads = append(threads, domain.DigestItem{
+				From:    "AI",
+				Message: aiResult,
+				Channel: "AI Summary",
+			})
+		}
+	}
+
 	// Build digest blocks with real Slack data
 	blocks := d.buildDigestBlocks(prefs.DigestHour, urgent, fyi, threads)
 

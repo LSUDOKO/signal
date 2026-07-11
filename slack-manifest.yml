@@ -25,31 +25,26 @@ features:
 
   slash_commands:
     - command: /signal
-      url: https://signal-slack.app/api/slack/commands
       description: Open Signal preferences and help
       usage_hint: "[command]"
       should_escape: false
 
     - command: /translate
-      url: https://signal-slack.app/api/slack/commands
       description: Translate an ambiguous workplace message into plain language
       usage_hint: "[message to translate]"
       should_escape: true
 
     - command: /catchup
-      url: https://signal-slack.app/api/slack/commands
       description: Get AI summary of what you missed about a topic
       usage_hint: "[what did I miss about...]"
       should_escape: true
 
     - command: /focus
-      url: https://signal-slack.app/api/slack/commands
       description: Start a deep work session (e.g., /focus 2h)
       usage_hint: "[duration]"
       should_escape: false
 
     - command: /digest
-      url: https://signal-slack.app/api/slack/commands
       description: Force-send your Quiet Hours Digest now
       usage_hint: ""
       should_escape: false
@@ -81,7 +76,6 @@ oauth_config:
 
 settings:
   event_subscriptions:
-    request_url: https://signal-slack.app/api/slack/events
     bot_events:
       - app_home_opened
       - app_mention
@@ -94,7 +88,6 @@ settings:
 
   interactivity:
     is_enabled: true
-    request_url: https://signal-slack.app/api/slack/interactive
 
   org_deploy_enabled: false
   socket_mode_enabled: true

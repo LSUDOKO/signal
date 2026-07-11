@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle, XCircle, Loader2 } from "lucide-react";
 import Link from "next/link";
 
-export default function OAuthCallback() {
+function OAuthCallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
@@ -54,7 +54,7 @@ export default function OAuthCallback() {
             <Loader2 className="h-12 w-12 mx-auto text-signal-blue animate-spin mb-6" />
             <h1 className="text-2xl font-bold mb-2">Installing Signal...</h1>
             <p className="text-zinc-500 dark:text-zinc-400">
-              Completing the setup. You'll be redirected shortly.
+              Completing the setup. You&apos;ll be redirected shortly.
             </p>
           </div>
         )}
@@ -64,7 +64,7 @@ export default function OAuthCallback() {
             <CheckCircle className="h-12 w-12 mx-auto text-emerald-500 mb-6" />
             <h1 className="text-2xl font-bold mb-2">Signal Installed! 🎉</h1>
             <p className="text-zinc-500 dark:text-zinc-400 mb-6">
-              You're being redirected to your preferences.
+              You&apos;re being redirected to your preferences.
             </p>
             <Link href="/app-home" className="btn-primary">
               Go to Preferences
@@ -87,5 +87,20 @@ export default function OAuthCallback() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function OAuthCallback() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950 px-6">
+        <div className="glass rounded-2xl p-12 text-center">
+          <Loader2 className="h-12 w-12 mx-auto text-signal-blue animate-spin mb-6" />
+          <p className="text-zinc-500">Loading...</p>
+        </div>
+      </div>
+    }>
+      <OAuthCallbackContent />
+    </Suspense>
   );
 }

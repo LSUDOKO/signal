@@ -1,7 +1,6 @@
 "use client";
 
-import { ArrowRight, Brain, Shield, Search, Moon, Bell, Check, Menu, X, Slack, Github, BookOpen, Star } from "lucide-react";
-import Link from "next/link";
+import { ArrowRight, Brain, Shield, Search, Moon, Bell, Menu, X, MessageSquare, GitFork, Star } from "lucide-react";
 import { useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
@@ -117,7 +116,7 @@ export default function Home() {
               href="https://slack.com/oauth/v2/authorize"
               className="hidden sm:inline-flex items-center gap-2 rounded-lg bg-signal-blue px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-signal-blue-dark hover:shadow-md"
             >
-              <Slack className="h-4 w-4" />
+              <MessageSquare className="h-4 w-4" />
               Add to Slack
             </a>
             <button
@@ -141,7 +140,7 @@ export default function Home() {
                 href="https://slack.com/oauth/v2/authorize"
                 className="inline-flex items-center justify-center gap-2 rounded-lg bg-signal-blue px-5 py-2.5 text-sm font-semibold text-white mt-2"
               >
-                <Slack className="h-4 w-4" />
+                <MessageSquare className="h-4 w-4" />
                 Add to Slack
               </a>
             </div>
@@ -182,7 +181,7 @@ export default function Home() {
                 href="https://slack.com/oauth/v2/authorize"
                 className="btn-primary text-base px-8 py-3.5 w-full sm:w-auto"
               >
-                <Slack className="h-5 w-5" />
+                <MessageSquare className="h-5 w-5" />
                 Add to Slack
                 <ArrowRight className="h-4 w-4" />
               </a>
@@ -313,7 +312,7 @@ export default function Home() {
                 href="https://slack.com/oauth/v2/authorize"
                 className="btn-primary text-base px-8 py-3.5"
               >
-                <Slack className="h-5 w-5" />
+                <MessageSquare className="h-5 w-5" />
                 Add Signal to Slack
               </a>
             </div>
@@ -348,7 +347,7 @@ export default function Home() {
               <h4 className="font-semibold text-sm mb-3">Resources</h4>
               <div className="flex flex-col gap-2 text-sm text-zinc-500 dark:text-zinc-400">
                 <a href="https://github.com/LSUDOKOS/signal" className="hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors flex items-center gap-1">
-                  <Github className="h-3.5 w-3.5" /> GitHub
+                  <GitFork className="h-3.5 w-3.5" /> GitHub
                 </a>
                 <a href="/privacy" className="hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors">Privacy Policy</a>
                 <a href="/support" className="hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors">Support</a>

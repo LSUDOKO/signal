@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Github, BookOpen, MessageCircle } from "lucide-react";
+import { GitFork, BookOpen, MessageCircle } from "lucide-react";
 
 export default function Support() {
   return (
@@ -26,7 +26,7 @@ export default function Support() {
             href="https://github.com/LSUDOKOS/signal"
             className="glass rounded-2xl p-6 card-hover text-center"
           >
-            <Github className="h-8 w-8 mx-auto mb-4 text-signal-blue" />
+            <GitFork className="h-8 w-8 mx-auto mb-4 text-signal-blue" />
             <h3 className="font-semibold mb-2">GitHub Issues</h3>
             <p className="text-sm text-zinc-500">Report bugs or request features</p>
           </a>

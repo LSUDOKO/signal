@@ -1,0 +1,47 @@
+# Go
+api/tmp/
+api/vendor/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.test
+api/coverage.out
+api/__debug_bin
+
+# Node
+node_modules/
+.next/
+out/
+build/
+dist/
+.npm/
+.eslintcache
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Logs
+*.log
+/logs/
+
+# Misc
+*.local

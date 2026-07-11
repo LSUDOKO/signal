@@ -8,18 +8,20 @@ import (
 
 	"github.com/LSUDOKOS/signal/internal/ai"
 	"github.com/LSUDOKOS/signal/internal/domain"
+	"github.com/LSUDOKOS/signal/internal/rts"
 	"github.com/slack-go/slack"
 )
 
 // CatchUpService implements the Catch-Up semantic search feature.
 type CatchUpService struct {
-	slack SlackAPI
-	ai    *ai.Client
+	slack    SlackAPI
+	ai       *ai.Client
+	searcher *rts.Searcher
 }
 
 // NewCatchUpService creates a new Catch-Up service.
-func NewCatchUpService(slack SlackAPI, ai *ai.Client) *CatchUpService {
-	return &CatchUpService{slack: slack, ai: ai}
+func NewCatchUpService(slack SlackAPI, ai *ai.Client, searcher *rts.Searcher) *CatchUpService {
+	return &CatchUpService{slack: slack, ai: ai, searcher: searcher}
 }
 
 // HandleSlashCommand processes the /catchup command.
@@ -70,36 +72,26 @@ func (c *CatchUpService) HandleSlashCommand(ctx context.Context, cmd *slack.Slas
 
 // searchAndSummarize performs a Slack search and AI summarization.
 func (c *CatchUpService) searchAndSummarize(ctx context.Context, userID, query string, daysBack int) (*domain.CatchUpResult, error) {
-	// Build Slack search query
-	dateFilter := time.Now().AddDate(0, 0, -daysBack).Format("2006-01-02")
-	searchQuery := fmt.Sprintf("from:@%s OR to:@%s %s after:%s",
-		userID, userID, query, dateFilter,
-	)
-
-	params := slack.SearchParameters{
-		Sort:  "timestamp",
-		Count: 20,
-	}
-
-	results, err := c.slack.SearchMessages(searchQuery, params)
+	// Use the RTS client for semantic search
+	result, err := c.searcher.SemanticCatchup(ctx, userID, query, daysBack)
 	if err != nil {
-		return nil, fmt.Errorf("search messages: %w", err)
+		return nil, fmt.Errorf("semantic search: %w", err)
 	}
 
-	if len(results.Matches) == 0 {
+	if result.TotalCount == 0 {
 		return &domain.CatchUpResult{MessageCount: 0}, nil
 	}
 
-	// Extract message text and permalinks
+	// Extract message text for AI summarization
 	var messageTexts []string
-	var messageLinks []string
-	for _, match := range results.Matches {
-		if match.Text != "" {
-			messageTexts = append(messageTexts, match.Text)
-			// Build permalink from channel and timestamp
-			link := fmt.Sprintf("https://slack.com/archives/%s/p%s", match.Channel.ID, strings.Replace(match.Timestamp, ".", "", 1))
-			messageLinks = append(messageLinks, link)
+	for _, msg := range result.Messages {
+		if msg.Text != "" {
+			messageTexts = append(messageTexts, msg.Text)
 		}
+	}
+
+	if len(messageTexts) == 0 {
+		return &domain.CatchUpResult{MessageCount: 0}, nil
 	}
 
 	// Generate AI summary

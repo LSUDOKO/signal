@@ -1,7 +1,11 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -25,9 +29,32 @@ func NewHostClient(serverURL string) (*HostClient, error) {
 
 // callTool sends a tool execution request to the MCP server.
 func (h *HostClient) callTool(ctx context.Context, toolName string, args map[string]interface{}) error {
-	_ = ctx
-	slog.Debug("mcp call", "tool", toolName, "args", args)
-	// Simplified: just log the call for hackathon purposes
+	body, err := json.Marshal(args)
+	if err != nil {
+		return fmt.Errorf("marshal args: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		h.serverURL+"/tools/"+toolName,
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("mcp request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("mcp returned %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	slog.Debug("mcp call successful", "tool", toolName)
 	return nil
 }
 

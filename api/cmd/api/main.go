@@ -65,7 +65,8 @@ func main() {
 	channelRepo := postgres.NewChannelRepository(db)
 	digestRepo := postgres.NewDigestRepository(db)
 	focusSummaryRepo := postgres.NewFocusSummaryRepository(db)
-	translationRepo := postgres.NewTranslationRepository(db)
+	// translationRepo initialized for future use with translation persistence
+	postgres.NewTranslationRepository(db)
 
 	// Initialize Redis cache
 	cache, err := redis.NewCache(ctx, fmt.Sprintf("redis://%s", cfg.Redis.Addr))
@@ -78,8 +79,15 @@ func main() {
 	// Initialize AI client
 	aiClient := ai.NewClient(cfg.OpenAI.APIKey, cfg.OpenAI.Model, cfg.OpenAI.BaseURL)
 
-	// Initialize RTS searcher
-	rtsSearcher := rts.NewSearcher(nil) // Slack client injected later
+	// Start Slack Socket Mode handler (needed before RTS since RTS needs the Slack API client)
+	slackHandler, err := signalSlack.NewClient(cfg.Slack.BotToken, cfg.Slack.AppToken, nil)
+	if err != nil {
+		slog.Error("failed to initialize slack client", "error", err)
+		os.Exit(1)
+	}
+
+	// Initialize RTS searcher with real Slack API client
+	rtsSearcher := rts.NewSearcher(slackHandler.GetAPI())
 
 	// Initialize MCP host client
 	var mcpHostClient *mcpclient.HostClient
@@ -90,35 +98,21 @@ func main() {
 		}
 	}
 
-	// Start Slack Socket Mode handler
-	slackHandler, err := signalSlack.NewClient(cfg.Slack.BotToken, cfg.Slack.AppToken, nil)
-	if err != nil {
-		slog.Error("failed to initialize slack client", "error", err)
-		os.Exit(1)
-	}
-
-	// Now that we have the slack client, create the feature controller with the handler as SlackAPI
+	// Create feature services with the handler as SlackAPI
 	slackAPI := slackHandler
-
-	// Initialize feature services
 	focusMode := features.NewFocusModeService(slackAPI, aiClient, cache, channelRepo, focusSummaryRepo)
 	translator := features.NewTranslatorService(slackAPI, aiClient)
-	catchup := features.NewCatchUpService(slackAPI, aiClient)
+	catchup := features.NewCatchUpService(slackAPI, aiClient, rtsSearcher)
 	digest := features.NewDigestService(slackAPI, aiClient, digestRepo, userRepo, prefsRepo, cache)
 	deepWork := features.NewDeepWorkService(slackAPI, mcpHostClient, cache)
 
 	featureCtrl := features.NewController(
 		focusMode, translator, catchup, digest, deepWork,
-		userRepo, prefsRepo,
+		userRepo, prefsRepo, rtsSearcher,
 	)
 
 	// Set the feature controller on the slack handler
 	slackHandler.SetFeatureCtrl(featureCtrl)
-
-	// Inject Slack client into RTS searcher
-	rtsSearcher = rts.NewSearcher(slackHandler.GetAPI())
-	_ = rtsSearcher
-	_ = translationRepo
 
 	// Start Slack event handler
 	go func() {

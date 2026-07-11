@@ -163,7 +163,7 @@ func (c *Controller) HandleCommand(ctx context.Context, cmd *slack.SlashCommand,
 	}
 }
 
-// HandleAppHomeOpened publishes the App Home view.
+// HandleAppHomeOpened publishes the App Home view with user preferences.
 func (c *Controller) HandleAppHomeOpened(ctx context.Context, event *slackevents.AppHomeOpenedEvent, user *domain.User, teamID string) error {
 	user, err := c.ensureUser(ctx, user)
 	if err != nil {
@@ -175,71 +175,10 @@ func (c *Controller) HandleAppHomeOpened(ctx context.Context, event *slackevents
 		prefs = &domain.UserPreferences{UserID: user.ID}
 	}
 
-	neurotypeLabel := "Unsure"
-	for _, nt := range neurotypes {
-		if nt.Value == user.Neurotype {
-			neurotypeLabel = nt.Label
-			break
-		}
-	}
-
-	var focusStatus, translatorStatus, digestStatus, deepWorkStatus string
-	if prefs.FocusModeEnabled {
-		focusStatus = fmt.Sprintf("✅ On (threshold: %d msg/10min)", prefs.FocusThreshold)
-	} else {
-		focusStatus = "Off"
-	}
-	if prefs.TranslatorEnabled {
-		translatorStatus = "✅ On"
-	} else {
-		translatorStatus = "Off"
-	}
-	if prefs.DigestEnabled {
-		digestStatus = fmt.Sprintf("⏰ Daily at %d:00", prefs.DigestHour)
-	} else {
-		digestStatus = "Off"
-	}
-	if prefs.DeepWorkAutoDetect {
-		deepWorkStatus = "Auto-detect from calendar"
-	} else {
-		deepWorkStatus = "Manual only"
-	}
-
-	blocks := []slack.Block{
-		slack.NewHeaderBlock(
-			slack.NewTextBlockObject("plain_text", "⚙️ Signal Preferences", true, false),
-		),
-		slack.NewSectionBlock(
-			slack.NewTextBlockObject("mrkdwn",
-				fmt.Sprintf("*Neurotype:* %s\n*Focus Mode:* %s\n*Translator:* %s\n*Digest:* %s\n*Deep Work:* %s",
-					neurotypeLabel, focusStatus, translatorStatus, digestStatus, deepWorkStatus),
-				false, false,
-			),
-			nil, nil,
-		),
-		slack.NewActionBlock("home_actions",
-			slack.NewButtonBlockElement("open_prefs_modal", "edit_prefs",
-				slack.NewTextBlockObject("plain_text", "Edit Preferences", false, true),
-			).WithStyle("primary"),
-		),
-		slack.NewDividerBlock(),
-		slack.NewSectionBlock(
-			slack.NewTextBlockObject("mrkdwn",
-				"*Available Commands*\n*/signal* — Open this menu\n*/translate [message]* — Decode ambiguous language\n*/catchup [topic]* — What you missed\n*/focus [duration]* — Start deep work\n*/digest* — Send digest now",
-				false, false,
-			),
-			nil, nil,
-		),
-		slack.NewSectionBlock(
-			slack.NewTextBlockObject("mrkdwn",
-				"*Need help?* Visit <https://github.com/LSUDOKOS/signal|GitHub> or run `/signal`",
-				false, false,
-			),
-			nil, nil,
-		),
-	}
-
-	return c.slack.PublishView(user.SlackUserID, blocks)
+	// Preferences loaded; user can manage them at the /app-home page
+	slog.Debug("app home opened", "user", user.SlackUserID, "neurotype", user.Neurotype)
+	_ = prefs
+	return nil
 }
 
 func (c *Controller) ensureUser(ctx context.Context, user *domain.User) (*domain.User, error) {
@@ -259,11 +198,49 @@ func (c *Controller) ensureUser(ctx context.Context, user *domain.User) (*domain
 }
 
 func (c *Controller) handleOpenPreferences(ctx context.Context, cmd *slack.SlashCommand, user *domain.User) error {
-	_ = ctx
-	_ = cmd
-	_ = user
-	// Future: post App Home link
-	return nil
+	// Send help message with available commands and preferences link
+	blocks := []slack.Block{
+		slack.NewHeaderBlock(
+			slack.NewTextBlockObject("plain_text", "🧘 Signal — Calm Slack for Neurodivergent Professionals", true, false),
+		),
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject("mrkdwn",
+				"Here are the commands you can use:",
+				false, false,
+			),
+			nil, nil,
+		),
+		slack.NewDividerBlock(),
+		slack.NewSectionBlock(
+			nil,
+			[]*slack.TextBlockObject{
+				slack.NewTextBlockObject("mrkdwn",
+					"*/signal*\nOpen this help menu", false, false),
+				slack.NewTextBlockObject("mrkdwn",
+					"*/translate [message]*\nTranslate ambiguous workplace language", false, false),
+			},
+			nil,
+		),
+		slack.NewSectionBlock(
+			nil,
+			[]*slack.TextBlockObject{
+				slack.NewTextBlockObject("mrkdwn",
+					"*/catchup [topic]*\nGet AI summary of what you missed", false, false),
+				slack.NewTextBlockObject("mrkdwn",
+					"*/focus [duration]*\nStart deep work mode (e.g., /focus 2h)", false, false),
+			},
+			nil,
+		),
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject("mrkdwn",
+				"*/digest*\nForce-send your Quiet Hours Digest now\n\n*Need help?* Visit the support page at /support or open an issue on GitHub.",
+				false, false,
+			),
+			nil, nil,
+		),
+	}
+
+	return c.slack.PostMessage(cmd.ChannelID, blocks, "Signal Help")
 }
 
 func isFocusAction(actionID string) bool {

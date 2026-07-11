@@ -17,6 +17,7 @@ import (
 	"github.com/LSUDOKOS/signal/internal/store"
 	"github.com/LSUDOKOS/signal/internal/store/postgres"
 	"github.com/LSUDOKOS/signal/internal/store/redis"
+	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 	"github.com/slack-go/slack"
 )
@@ -96,13 +97,36 @@ func main() {
 
 	// Create mux and register handlers
 	mux := asynq.NewServeMux()
+
 	mux.HandleFunc("digest:send", func(ctx context.Context, t *asynq.Task) error {
 		userID := string(t.Payload())
 		slog.Info("processing digest task", "user", userID)
 
-		// In production, this would look up the user and call SendScheduledDigest
-		// For now, log that the digest was queued
-		slog.Info("digest sent", "user", userID)
+		// Look up user and send digest via the digest service
+		uid, err := uuid.Parse(userID)
+		if err != nil {
+			slog.Error("invalid user ID in digest task", "error", err, "user_id", userID)
+			return fmt.Errorf("invalid user id: %w", err)
+		}
+
+		user, err := userRepo.GetByID(ctx, uid)
+		if err != nil {
+			slog.Error("digest task: failed to get user", "error", err, "user_id", userID)
+			return fmt.Errorf("get user: %w", err)
+		}
+
+		prefs, err := prefsRepo.Get(ctx, uid)
+		if err != nil {
+			slog.Error("digest task: failed to get prefs", "error", err, "user_id", userID)
+			return fmt.Errorf("get prefs: %w", err)
+		}
+
+		if err := digestService.SendScheduledDigest(ctx, *user, prefs); err != nil {
+			slog.Error("digest task: send failed", "error", err, "user", user.SlackUserID)
+			return fmt.Errorf("send digest: %w", err)
+		}
+
+		slog.Info("digest sent via task", "user", user.SlackUserID)
 		return nil
 	})
 

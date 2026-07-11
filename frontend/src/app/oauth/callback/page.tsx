@@ -39,10 +39,10 @@ function OAuthCallbackContent() {
           setError("Failed to exchange authorization code.");
         }
       })
-      .catch(() => {
-        // Even if backend isn't running, simulate success for demo
-        setStatus("success");
-        setTimeout(() => router.push("/app-home"), 2000);
+      .catch((err) => {
+        setStatus("error");
+        setError("Could not connect to Signal backend. Is the API server running?");
+        console.error("OAuth error:", err);
       });
   }, [searchParams, router]);
 

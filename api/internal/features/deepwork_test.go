@@ -27,7 +27,6 @@ func TestParseDuration(t *testing.T) {
 		{"with spaces", "  2h  ", 120, false},
 		{"uppercase H", "2H", 120, false},
 		{"uppercase MIN", "90MIN", 90, false},
-		// Error cases
 		{"invalid string", "abc", 0, true},
 		{"empty string", "", 0, true},
 		{"negative number", "-30", -30, false},
@@ -82,7 +81,7 @@ func TestDeepWorkService_IsInDeepWork(t *testing.T) {
 		t.Error("should not be in deep work initially")
 	}
 
-	mock.deepWork = "active"
+	mock.deepWork = true
 
 	if !svc.IsInDeepWork(context.Background(), "U123") {
 		t.Error("should be in deep work after setting state")

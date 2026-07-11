@@ -2,6 +2,7 @@ package features
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/LSUDOKOS/signal/internal/domain"
@@ -10,6 +11,17 @@ import (
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 )
+
+var neurotypes = []struct {
+	Value string
+	Label string
+}{
+	{Value: "adhd", Label: "ADHD"},
+	{Value: "autism", Label: "Autistic"},
+	{Value: "anxiety", Label: "Anxiety"},
+	{Value: "unspecified", Label: "Unsure"},
+	{Value: "ally", Label: "Ally"},
+}
 
 // Controller dispatches Slack events to the appropriate feature handlers.
 type Controller struct {
@@ -21,6 +33,7 @@ type Controller struct {
 	userRepo    store.UserRepository
 	prefsRepo   store.PreferencesRepository
 	rtsSearcher *rts.Searcher
+	slack       SlackAPI
 }
 
 // NewController creates a new feature controller.
@@ -33,6 +46,7 @@ func NewController(
 	userRepo store.UserRepository,
 	prefsRepo store.PreferencesRepository,
 	rtsSearcher *rts.Searcher,
+	slack SlackAPI,
 ) *Controller {
 	return &Controller{
 		focusMode:   focusMode,
@@ -43,6 +57,7 @@ func NewController(
 		userRepo:    userRepo,
 		prefsRepo:   prefsRepo,
 		rtsSearcher: rtsSearcher,
+		slack:       slack,
 	}
 }
 
@@ -160,10 +175,71 @@ func (c *Controller) HandleAppHomeOpened(ctx context.Context, event *slackevents
 		prefs = &domain.UserPreferences{UserID: user.ID}
 	}
 
-	// Build and publish App Home view with preferences
-	_ = prefs
-	// Future: publish view via API
-	return nil
+	neurotypeLabel := "Unsure"
+	for _, nt := range neurotypes {
+		if nt.Value == user.Neurotype {
+			neurotypeLabel = nt.Label
+			break
+		}
+	}
+
+	var focusStatus, translatorStatus, digestStatus, deepWorkStatus string
+	if prefs.FocusModeEnabled {
+		focusStatus = fmt.Sprintf("✅ On (threshold: %d msg/10min)", prefs.FocusThreshold)
+	} else {
+		focusStatus = "Off"
+	}
+	if prefs.TranslatorEnabled {
+		translatorStatus = "✅ On"
+	} else {
+		translatorStatus = "Off"
+	}
+	if prefs.DigestEnabled {
+		digestStatus = fmt.Sprintf("⏰ Daily at %d:00", prefs.DigestHour)
+	} else {
+		digestStatus = "Off"
+	}
+	if prefs.DeepWorkAutoDetect {
+		deepWorkStatus = "Auto-detect from calendar"
+	} else {
+		deepWorkStatus = "Manual only"
+	}
+
+	blocks := []slack.Block{
+		slack.NewHeaderBlock(
+			slack.NewTextBlockObject("plain_text", "⚙️ Signal Preferences", true, false),
+		),
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject("mrkdwn",
+				fmt.Sprintf("*Neurotype:* %s\n*Focus Mode:* %s\n*Translator:* %s\n*Digest:* %s\n*Deep Work:* %s",
+					neurotypeLabel, focusStatus, translatorStatus, digestStatus, deepWorkStatus),
+				false, false,
+			),
+			nil, nil,
+		),
+		slack.NewActionBlock("home_actions",
+			slack.NewButtonBlockElement("open_prefs_modal", "edit_prefs",
+				slack.NewTextBlockObject("plain_text", "Edit Preferences", false, true),
+			).WithStyle("primary"),
+		),
+		slack.NewDividerBlock(),
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject("mrkdwn",
+				"*Available Commands*\n*/signal* — Open this menu\n*/translate [message]* — Decode ambiguous language\n*/catchup [topic]* — What you missed\n*/focus [duration]* — Start deep work\n*/digest* — Send digest now",
+				false, false,
+			),
+			nil, nil,
+		),
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject("mrkdwn",
+				"*Need help?* Visit <https://github.com/LSUDOKOS/signal|GitHub> or run `/signal`",
+				false, false,
+			),
+			nil, nil,
+		),
+	}
+
+	return c.slack.PublishView(user.SlackUserID, blocks)
 }
 
 func (c *Controller) ensureUser(ctx context.Context, user *domain.User) (*domain.User, error) {
@@ -221,4 +297,5 @@ type SlackAPI interface {
 	GetChannelHistory(channelID string, limit int) ([]slack.Message, error)
 	SearchMessages(query string, params slack.SearchParameters) (*slack.SearchMessages, error)
 	SetUserStatus(userID, statusText, statusEmoji string, expiration int) error
+	PublishView(userID string, blocks []slack.Block) error
 }

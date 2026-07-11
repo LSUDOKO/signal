@@ -288,6 +288,19 @@ func (h *EventHandler) SetUserStatus(userID, statusText, statusEmoji string, exp
 	return h.api.SetUserCustomStatus(statusText, statusEmoji, int64(expiration))
 }
 
+// PublishView publishes a Home tab view for a user.
+func (h *EventHandler) PublishView(userID string, blocks []slack.Block) error {
+	view := slack.HomeTabViewRequest{
+		Type:   "home",
+		Blocks: slack.Blocks{BlockSet: blocks},
+	}
+	_, err := h.api.PublishView(userID, view, "")
+	if err != nil {
+		return fmt.Errorf("publish view: %w", err)
+	}
+	return nil
+}
+
 // UnmarshalJSON is a helper to parse raw JSON into a typed event.
 func UnmarshalJSON(data []byte, v interface{}) error {
 	return json.Unmarshal(data, v)

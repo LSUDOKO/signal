@@ -45,3 +45,6 @@ docker-compose.override.yml
 
 # Misc
 *.local
+*.exe
+*.out
+__debug_bin

@@ -106,7 +106,33 @@ func main() {
 
 	mux.HandleFunc("focus:check", func(ctx context.Context, t *asynq.Task) error {
 		channelID := string(t.Payload())
-		slog.Info("processing focus check task", "channel", channelID)
+		if channelID == "" {
+			slog.Warn("focus check task: empty channel ID")
+			return nil
+		}
+
+		// Check current channel velocity from Redis
+		count, err := cache.GetChannelVelocity(ctx, channelID)
+		if err != nil {
+			slog.Warn("focus check: failed to get velocity", "channel", channelID, "error", err)
+			return nil
+		}
+
+		offered, err := cache.HasFocusBeenOffered(ctx, channelID)
+		if err != nil {
+			slog.Warn("focus check: failed to check offered flag", "channel", channelID, "error", err)
+		}
+
+		slog.Info("focus check completed",
+			"channel", channelID,
+			"velocity", count,
+			"focus_offered", offered,
+		)
+
+		if count >= 50 && !offered {
+			slog.Info("channel velocity threshold met, awaiting next message to trigger focus mode",
+				"channel", channelID, "count", count)
+		}
 		return nil
 	})
 

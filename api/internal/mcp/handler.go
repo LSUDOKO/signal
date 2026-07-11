@@ -17,8 +17,8 @@ type ToolHandler struct {
 
 // CalendarAPI defines operations for calendar integration.
 type CalendarAPI interface {
-	CreateEvent(summary string, durationMinutes int, userID string) (string, error)
-	GetCurrentEvent(userID string) (string, error)
+	CreateEvent(ctx context.Context, summary string, durationMinutes int, userID string) (string, error)
+	GetCurrentEvent(ctx context.Context, userID string) (string, error)
 }
 
 // HandleBlockFocusTime handles the block_focus_time tool call.
@@ -50,7 +50,7 @@ func (h *ToolHandler) HandleBlockFocusTime(ctx context.Context, args json.RawMes
 	eventID := fmt.Sprintf("focus_%s_%d", params.UserID, time.Now().Unix())
 	if h.CalendarClient != nil {
 		var err error
-		eventID, err = h.CalendarClient.CreateEvent(params.Title, params.DurationMinutes, params.UserID)
+		eventID, err = h.CalendarClient.CreateEvent(ctx, params.Title, params.DurationMinutes, params.UserID)
 		if err != nil {
 			slog.Warn("calendar create failed, using mock event", "error", err)
 		}
@@ -90,11 +90,11 @@ func (h *ToolHandler) HandleGetUserStatus(ctx context.Context, args json.RawMess
 		params.CheckNextMinutes = 60
 	}
 
-	// Check calendar for current/upcoming events
+	// Check calendar for current/upcoming events via Google Calendar API
 	currentEvent := ""
 	if h.CalendarClient != nil {
 		var err error
-		currentEvent, err = h.CalendarClient.GetCurrentEvent(params.UserID)
+		currentEvent, err = h.CalendarClient.GetCurrentEvent(ctx, params.UserID)
 		if err != nil {
 			slog.Warn("calendar check failed, returning available", "error", err)
 		}

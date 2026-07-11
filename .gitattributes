@@ -1,0 +1,47 @@
+# Auto-detect text files and normalize line endings
+* text=auto eol=lf
+
+# Go source files
+*.go text diff=golang
+
+# JavaScript/TypeScript
+*.js text
+*.ts text
+*.tsx text
+*.jsx text
+
+# Configuration files
+*.yml text
+*.yaml text
+*.json text
+*.toml text
+*.env text
+*.env.example text
+
+# Markdown and documentation
+*.md text
+*.mdx text
+
+# SQL migrations
+*.sql text
+
+# Docker files
+Dockerfile text
+Dockerfile.* text
+
+# Shell scripts
+*.sh text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg text
+*.woff binary
+*.woff2 binary
+
+# Lock files
+go.sum -diff
+package-lock.json -diff

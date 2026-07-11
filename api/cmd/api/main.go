@@ -47,6 +47,18 @@ func main() {
 	}
 	defer db.Close()
 
+	// Run database migrations
+	migrationsDir := "db/migrations"
+	if _, err := os.Stat(migrationsDir); err == nil {
+		slog.Info("running database migrations", "dir", migrationsDir)
+		if err := postgres.RunMigrations(ctx, db.Pool(), migrationsDir); err != nil {
+			slog.Error("database migration failed", "error", err)
+			os.Exit(1)
+		}
+	} else {
+		slog.Warn("migrations directory not found, skipping", "dir", migrationsDir)
+	}
+
 	// Initialize repositories
 	userRepo := postgres.NewUserRepository(db)
 	prefsRepo := postgres.NewPreferencesRepository(db)

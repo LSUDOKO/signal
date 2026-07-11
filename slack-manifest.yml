@@ -1,0 +1,101 @@
+# slack-manifest.yml — Signal Slack App Manifest
+# Created for the Slack Agent Builder Challenge (July 2026)
+# Use with: slack app create signal --manifest slack-manifest.yml
+
+display_information:
+  name: Signal
+  description: "Calm Slack for neurodivergent professionals — Focus Mode, Social Translator, Catch-Up, and Deep Work Protector."
+  background_color: "#4f46e5"
+  long_description: |-
+    Signal makes Slack accessible for neurodivergent professionals (ADHD, autism, anxiety).
+
+    Features:
+    • Focus Mode — Detects fast-moving channels, generates AI decision tree summaries
+    • Social Translator — Decodes passive-aggressive messages into plain language via DM
+    • Catch-Up — Semantic search with AI summaries of what you missed
+    • Deep Work Protector — Blocks focus time on calendar, sets Slack status, pauses notifications
+    • Quiet Hours Digest — Batches non-urgent mentions into structured daily digest
+
+    Built on Slack AI, MCP Server Integration, and Real-Time Search API.
+
+features:
+  bot_user:
+    display_name: Signal
+    always_online: false
+
+  slash_commands:
+    - command: /signal
+      url: https://signal-slack.app/api/slack/commands
+      description: Open Signal preferences and help
+      usage_hint: "[command]"
+      should_escape: false
+
+    - command: /translate
+      url: https://signal-slack.app/api/slack/commands
+      description: Translate an ambiguous workplace message into plain language
+      usage_hint: "[message to translate]"
+      should_escape: true
+
+    - command: /catchup
+      url: https://signal-slack.app/api/slack/commands
+      description: Get AI summary of what you missed about a topic
+      usage_hint: "[what did I miss about...]"
+      should_escape: true
+
+    - command: /focus
+      url: https://signal-slack.app/api/slack/commands
+      description: Start a deep work session (e.g., /focus 2h)
+      usage_hint: "[duration]"
+      should_escape: false
+
+    - command: /digest
+      url: https://signal-slack.app/api/slack/commands
+      description: Force-send your Quiet Hours Digest now
+      usage_hint: ""
+      should_escape: false
+
+oauth_config:
+  scopes:
+    bot:
+      - channels:history
+      - channels:read
+      - chat:write
+      - commands
+      - groups:history
+      - groups:read
+      - im:history
+      - im:read
+      - im:write
+      - links:read
+      - links:write
+      - mpim:read
+      - mpim:history
+      - reactions:read
+      - reactions:write
+      - search:read
+      - team:read
+      - users:read
+      - users:read.email
+      - app_mentions:read
+      - channels:join
+
+settings:
+  event_subscriptions:
+    request_url: https://signal-slack.app/api/slack/events
+    bot_events:
+      - app_home_opened
+      - app_mention
+      - message.channels
+      - message.groups
+      - message.im
+      - message.mpim
+      - member_joined_channel
+      - reaction_added
+
+  interactivity:
+    is_enabled: true
+    request_url: https://signal-slack.app/api/slack/interactive
+
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false

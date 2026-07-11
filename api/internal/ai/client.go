@@ -17,9 +17,13 @@ type Client struct {
 }
 
 // NewClient creates a new AI client.
-func NewClient(apiKey, model string) *Client {
+// baseURL should be the full API base URL (e.g. "https://api.openai.com/v1" for OpenAI,
+// or "https://api.x.ai/v1" for Grok by xAI, which uses an OpenAI-compatible API).
+func NewClient(apiKey, model, baseURL string) *Client {
+	config := openai.DefaultConfig(apiKey)
+	config.BaseURL = baseURL
 	return &Client{
-		client: openai.NewClient(apiKey),
+		client: openai.NewClientWithConfig(config),
 		model:  model,
 	}
 }

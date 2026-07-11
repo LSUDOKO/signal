@@ -1,6 +1,5 @@
 # slack-manifest.yml — Signal Slack App Manifest
 # Created for the Slack Agent Builder Challenge (July 2026)
-# Use with: slack app create signal --manifest slack-manifest.yml
 
 display_information:
   name: Signal
@@ -27,27 +26,21 @@ features:
     - command: /signal
       description: Open Signal preferences and help
       usage_hint: "[command]"
-      should_escape: false
 
     - command: /translate
       description: Translate an ambiguous workplace message into plain language
       usage_hint: "[message to translate]"
-      should_escape: true
 
     - command: /catchup
       description: Get AI summary of what you missed about a topic
       usage_hint: "[what did I miss about...]"
-      should_escape: true
 
     - command: /focus
       description: Start a deep work session (e.g., /focus 2h)
       usage_hint: "[duration]"
-      should_escape: false
 
     - command: /digest
       description: Force-send your Quiet Hours Digest now
-      usage_hint: ""
-      should_escape: false
 
 oauth_config:
   scopes:
@@ -67,7 +60,6 @@ oauth_config:
       - mpim:history
       - reactions:read
       - reactions:write
-      - search:read
       - team:read
       - users:read
       - users:read.email

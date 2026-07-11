@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/LSUDOKOS/signal/internal/domain"
+	"github.com/LSUDOKOS/signal/internal/rts"
 	"github.com/LSUDOKOS/signal/internal/store"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
@@ -19,6 +20,7 @@ type Controller struct {
 	deepWork    *DeepWorkService
 	userRepo    store.UserRepository
 	prefsRepo   store.PreferencesRepository
+	rtsSearcher *rts.Searcher
 }
 
 // NewController creates a new feature controller.
@@ -30,15 +32,17 @@ func NewController(
 	deepWork *DeepWorkService,
 	userRepo store.UserRepository,
 	prefsRepo store.PreferencesRepository,
+	rtsSearcher *rts.Searcher,
 ) *Controller {
 	return &Controller{
-		focusMode:  focusMode,
-		translator: translator,
-		catchup:    catchup,
-		digest:     digest,
-		deepWork:   deepWork,
-		userRepo:   userRepo,
-		prefsRepo:  prefsRepo,
+		focusMode:   focusMode,
+		translator:  translator,
+		catchup:     catchup,
+		digest:      digest,
+		deepWork:    deepWork,
+		userRepo:    userRepo,
+		prefsRepo:   prefsRepo,
+		rtsSearcher: rtsSearcher,
 	}
 }
 

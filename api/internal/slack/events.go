@@ -284,10 +284,8 @@ func (h *EventHandler) SearchMessages(query string, params slack.SearchParameter
 
 // SetUserStatus sets a user's Slack status.
 func (h *EventHandler) SetUserStatus(userID, statusText, statusEmoji string, expiration int) error {
-	// SetUserCustomStatus signature depends on slack-go version
-	// Try the 3-arg version first (userID, statusText, expiration)
-	_ = statusEmoji
-	return h.api.SetUserCustomStatus(userID, statusText, int64(expiration))
+	_ = userID // SetUserCustomStatus applies to the signed-in user's status
+	return h.api.SetUserCustomStatus(statusText, statusEmoji, int64(expiration))
 }
 
 // UnmarshalJSON is a helper to parse raw JSON into a typed event.

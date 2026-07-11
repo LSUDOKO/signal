@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/LSUDOKOS/signal/internal/ai"
@@ -49,11 +50,31 @@ func (d *DigestService) HandleSlashCommand(ctx context.Context, cmd *slack.Slash
 		return fmt.Errorf("open dm: %w", err)
 	}
 
-	// Get user's mentions/replies (in production, this would batched from Slack API)
+	// Fetch recent user messages via Slack Search API for the on-demand digest
+	recentMessages, err := d.slack.SearchMessages(
+		fmt.Sprintf("from:@%s OR to:@%s after:today", cmd.UserID, cmd.UserID),
+		slack.SearchParameters{Sort: "timestamp", Count: 25, SortDirection: "desc"},
+	)
+
+	var digestItems []string
+	if err == nil && recentMessages != nil && len(recentMessages.Matches) > 0 {
+		for i, match := range recentMessages.Matches {
+			if i >= 5 {
+				break
+			}
+			digestItems = append(digestItems, fmt.Sprintf("• <#%s>: %s", match.Channel.ID, match.Text))
+		}
+	}
+
+	digestSummary := "No recent mentions found."
+	if len(digestItems) > 0 {
+		digestSummary = strings.Join(digestItems, "\n")
+	}
+
 	blocks := []slack.Block{
 		slack.NewSectionBlock(
 			slack.NewTextBlockObject("mrkdwn",
-				"📬 *On-Demand Digest*\n\nI'm preparing your digest now. This feature is fully functional with a connected Slack workspace. For now, here's a summary of what I track:\n\n• @mentions in channels\n• Thread replies\n• Direct messages\n• Channel activity since last digest",
+				fmt.Sprintf("📬 *On-Demand Digest*\n\nHere are your recent mentions today:\n\n%s\n\nUse `/digest` anytime or set Quiet Hours in preferences for automatic delivery.", digestSummary),
 				false, false,
 			),
 			nil, nil,
@@ -68,44 +89,48 @@ func (d *DigestService) HandleSlashCommand(ctx context.Context, cmd *slack.Slash
 }
 
 // SendScheduledDigest sends a digest to a specific user (called by the worker).
-func (d *DigestService) SendScheduledDigest(ctx context.Context, userID domain.User, prefs *domain.UserPreferences) error {
-	dmChannel, err := d.slack.OpenDMChannel(userID.SlackUserID)
+func (d *DigestService) SendScheduledDigest(ctx context.Context, u domain.User, prefs *domain.UserPreferences) error {
+	dmChannel, err := d.slack.OpenDMChannel(u.SlackUserID)
 	if err != nil {
-		return fmt.Errorf("open dm for %s: %w", userID.SlackUserID, err)
+		return fmt.Errorf("open dm for %s: %w", u.SlackUserID, err)
 	}
 
-	// In production, this would fetch unread mentions, thread replies, and DMs
-	// from the Slack API based on the last digest time.
-	lastDigest, _ := d.cache.GetLastDigest(ctx, userID.SlackUserID)
-	if lastDigest.IsZero() {
-		lastDigest = time.Now().Add(-24 * time.Hour)
-	}
-
-	// Build digest blocks
-	blocks := d.buildDigestBlocks(
-		prefs.DigestHour,
-		[]domain.DigestItem{
-			{From: "@john", Message: "Need the report by 5 PM", Channel: "general"},
-			{From: "@sarah", Message: "Review mockups when you can", Channel: "design"},
-		},
-		[]domain.DigestItem{
-			{From: "@team", Message: "Lunch tomorrow at 12", Channel: "general"},
-		},
-		[]domain.DigestItem{
-			{From: "you", Message: "3 replies in #design", Channel: "design"},
-		},
+	// Fetch recent messages the user was mentioned in via Slack Search API
+	recentMessages, err := d.slack.SearchMessages(
+		fmt.Sprintf("from:@%s OR to:@%s after:yesterday", u.SlackUserID, u.SlackUserID),
+		slack.SearchParameters{Sort: "timestamp", Count: 50, SortDirection: "desc"},
 	)
+
+	var urgent, fyi, threads []domain.DigestItem
+	if err == nil && recentMessages != nil {
+		for _, match := range recentMessages.Matches {
+			item := domain.DigestItem{
+				From:    match.User,
+				Message: match.Text,
+				Channel: match.Channel.Name,
+			}
+			// Simple heuristic: messages directed at user are urgent
+			if strings.Contains(match.Text, u.SlackUserID) || strings.HasPrefix(match.Text, "to:") {
+				urgent = append(urgent, item)
+			} else {
+				fyi = append(fyi, item)
+			}
+		}
+	}
+
+	// Build digest blocks with real Slack data
+	blocks := d.buildDigestBlocks(prefs.DigestHour, urgent, fyi, threads)
 
 	if err := d.slack.PostMessage(dmChannel, blocks, "Digest"); err != nil {
 		return fmt.Errorf("post digest: %w", err)
 	}
 
 	// Track digest
-	if err := d.cache.SetLastDigest(ctx, userID.SlackUserID, time.Now()); err != nil {
+	if err := d.cache.SetLastDigest(ctx, u.SlackUserID, time.Now()); err != nil {
 		slog.Error("failed to set last digest", "error", err)
 	}
 
-	slog.Info("digest sent", "user", userID.SlackUserID, "hour", prefs.DigestHour)
+	slog.Info("digest sent", "user", u.SlackUserID, "hour", prefs.DigestHour)
 	return nil
 }
 

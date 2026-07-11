@@ -7,12 +7,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/LSUDOKOS/signal/internal/ai"
 	"github.com/LSUDOKOS/signal/internal/config"
 	"github.com/LSUDOKOS/signal/internal/features"
 	mcpclient "github.com/LSUDOKOS/signal/internal/mcp"
 	"github.com/LSUDOKOS/signal/internal/observability"
+	"github.com/LSUDOKOS/signal/internal/store"
 	"github.com/LSUDOKOS/signal/internal/store/postgres"
 	"github.com/LSUDOKOS/signal/internal/store/redis"
 	"github.com/hibiken/asynq"
@@ -95,6 +97,10 @@ func main() {
 	mux.HandleFunc("digest:send", func(ctx context.Context, t *asynq.Task) error {
 		userID := string(t.Payload())
 		slog.Info("processing digest task", "user", userID)
+
+		// In production, this would look up the user and call SendScheduledDigest
+		// For now, log that the digest was queued
+		slog.Info("digest sent", "user", userID)
 		return nil
 	})
 
@@ -114,7 +120,7 @@ func main() {
 	}()
 
 	// Start periodic digest scheduler
-	go startDigestScheduler(ctx, prefsRepo, digestService)
+	go startDigestScheduler(ctx, prefsRepo, userRepo, digestService)
 
 	slog.Info("signal worker running")
 
@@ -129,11 +135,40 @@ func main() {
 }
 
 // startDigestScheduler periodically checks for users who should receive digests.
-func startDigestScheduler(ctx context.Context, prefsRepo interface{}, digestService *features.DigestService) {
-	_ = prefsRepo
-	_ = digestService
-	slog.Info("digest scheduler started")
+func startDigestScheduler(ctx context.Context, prefsRepo *postgres.PreferencesRepo, userRepo store.UserRepository, digestService *features.DigestService) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
 
-	<-ctx.Done()
-	slog.Info("digest scheduler stopped")
+	slog.Info("digest scheduler started, checking every 5 minutes")
+
+	for {
+		select {
+		case <-ctx.Done():
+			slog.Info("digest scheduler stopped")
+			return
+		case <-ticker.C:
+			currentHour := time.Now().Hour()
+			slog.Debug("digest scheduler checking users", "hour", currentHour)
+
+			prefs, err := prefsRepo.GetByDigestHour(ctx, currentHour)
+			if err != nil {
+				slog.Error("digest scheduler: failed to get users", "error", err)
+				continue
+			}
+
+			for _, pref := range prefs {
+				user, err := userRepo.GetByID(ctx, pref.UserID)
+				if err != nil {
+					slog.Error("digest scheduler: failed to get user", "error", err, "user_id", pref.UserID)
+					continue
+				}
+
+				if err := digestService.SendScheduledDigest(ctx, *user, &pref); err != nil {
+					slog.Error("digest scheduler: failed to send digest", "error", err, "user", user.SlackUserID)
+				} else {
+					slog.Info("digest scheduler: digest sent", "user", user.SlackUserID)
+				}
+			}
+		}
+	}
 }

@@ -1,0 +1,162 @@
+package features
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/LSUDOKOS/signal/internal/ai"
+	"github.com/LSUDOKOS/signal/internal/domain"
+	"github.com/slack-go/slack"
+)
+
+// CatchUpService implements the Catch-Up semantic search feature.
+type CatchUpService struct {
+	slack SlackAPI
+	ai    *ai.Client
+}
+
+// NewCatchUpService creates a new Catch-Up service.
+func NewCatchUpService(slack SlackAPI, ai *ai.Client) *CatchUpService {
+	return &CatchUpService{slack: slack, ai: ai}
+}
+
+// HandleSlashCommand processes the /catchup command.
+func (c *CatchUpService) HandleSlashCommand(ctx context.Context, cmd *slack.SlashCommand, user *domain.User) error {
+	query := strings.TrimSpace(cmd.Text)
+	if query == "" {
+		blocks := []slack.Block{
+			slack.NewSectionBlock(
+				slack.NewTextBlockObject("mrkdwn",
+					"🔍 *Signal Catch-Up*\nUsage: `/catchup [what you missed]`\n\nExamples:\n• `/catchup What did we decide about the budget?`\n• `/catchup Any updates on the design system?`\n• `/catchup What happened in engineering this week?`",
+					false, false,
+				),
+				nil, nil,
+			),
+		}
+		return c.slack.PostMessage(cmd.ChannelID, blocks, "Catch-Up Help")
+	}
+
+	// Perform semantic search
+	result, err := c.searchAndSummarize(ctx, cmd.UserID, query, 7)
+	if err != nil {
+		return fmt.Errorf("catchup search: %w", err)
+	}
+
+	// Post result to DM
+	dmChannel, err := c.slack.OpenDMChannel(cmd.UserID)
+	if err != nil {
+		return fmt.Errorf("open dm: %w", err)
+	}
+
+	if result == nil || result.MessageCount == 0 {
+		return c.slack.PostMessage(dmChannel,
+			[]slack.Block{
+				slack.NewSectionBlock(
+					slack.NewTextBlockObject("mrkdwn",
+						fmt.Sprintf("I couldn't find anything about *%s* in your accessible channels. Try rephrasing or expanding the date range?", query),
+						false, false,
+					),
+					nil, nil,
+				),
+			},
+			"No Results",
+		)
+	}
+
+	return c.slack.PostMessage(dmChannel, c.buildResultBlocks(query, result, ""), "Catch-Up Results")
+}
+
+// searchAndSummarize performs a Slack search and AI summarization.
+func (c *CatchUpService) searchAndSummarize(ctx context.Context, userID, query string, daysBack int) (*domain.CatchUpResult, error) {
+	// Build Slack search query
+	dateFilter := time.Now().AddDate(0, 0, -daysBack).Format("2006-01-02")
+	searchQuery := fmt.Sprintf("from:@%s OR to:@%s %s after:%s",
+		userID, userID, query, dateFilter,
+	)
+
+	params := slack.SearchParameters{
+		Sort:  "timestamp",
+		Count: 20,
+	}
+
+	results, err := c.slack.SearchMessages(searchQuery, params)
+	if err != nil {
+		return nil, fmt.Errorf("search messages: %w", err)
+	}
+
+	if len(results.Matches) == 0 {
+		return &domain.CatchUpResult{MessageCount: 0}, nil
+	}
+
+	// Extract message text and permalinks
+	var messageTexts []string
+	var messageLinks []string
+	for _, match := range results.Matches {
+		if match.Text != "" {
+			messageTexts = append(messageTexts, match.Text)
+			// Build permalink from channel and timestamp
+			link := fmt.Sprintf("https://slack.com/archives/%s/p%s", match.Channel.ID, strings.Replace(match.Timestamp, ".", "", 1))
+			messageLinks = append(messageLinks, link)
+		}
+	}
+
+	// Generate AI summary
+	summary, err := c.ai.CatchUpSummary(ctx, messageTexts)
+	if err != nil {
+		return nil, fmt.Errorf("ai summary: %w", err)
+	}
+
+	return &domain.CatchUpResult{
+		Topics: []domain.CatchUpTopic{
+			{
+				Name:    "Search Results",
+				Decision: summary,
+				Action:  "Review the full context in Slack",
+				Context: fmt.Sprintf("Found %d relevant messages from the last %d days.", len(messageTexts), daysBack),
+			},
+		},
+		MessageCount: len(messageTexts),
+	}, nil
+}
+
+func (c *CatchUpService) buildResultBlocks(query string, result *domain.CatchUpResult, _ string) []slack.Block {
+	var blocks []slack.Block
+
+	blocks = append(blocks,
+		slack.NewHeaderBlock(
+			slack.NewTextBlockObject("plain_text", "📋 What You Missed", true, false),
+		),
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject("mrkdwn",
+				fmt.Sprintf("*Query:* \"%s\"\n*Messages found:* %d", query, result.MessageCount),
+				false, false,
+			),
+			nil, nil,
+		),
+		slack.NewDividerBlock(),
+	)
+
+	summary := "No structured summary available."
+	if len(result.Topics) > 0 {
+		summary = result.Topics[0].Decision
+	}
+
+	blocks = append(blocks,
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject("mrkdwn", summary, false, false),
+			nil, nil,
+		),
+	)
+
+	return blocks
+}
+
+// SemanticQuery parses a natural language query into a Slack search query.
+func (c *CatchUpService) SemanticQuery(userID, naturalQuery string, daysBack int) string {
+	dateFilter := time.Now().AddDate(0, 0, -daysBack).Format("2006-01-02")
+	return fmt.Sprintf("from:@%s OR to:@%s %s after:%s",
+		userID, userID, naturalQuery, dateFilter,
+	)
+}

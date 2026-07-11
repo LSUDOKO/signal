@@ -27,8 +27,8 @@ func NewHostClient(serverURL string) (*HostClient, error) {
 	}, nil
 }
 
-// callTool sends a tool execution request to the MCP server.
-func (h *HostClient) callTool(ctx context.Context, toolName string, args map[string]interface{}) error {
+// callTool sends a tool execution request to the MCP server and parses the response.
+func (h *HostClient) callTool(ctx context.Context, toolName string, args map[string]interface{}, result interface{}) error {
 	body, err := json.Marshal(args)
 	if err != nil {
 		return fmt.Errorf("marshal args: %w", err)
@@ -54,7 +54,19 @@ func (h *HostClient) callTool(ctx context.Context, toolName string, args map[str
 		return fmt.Errorf("mcp returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	slog.Debug("mcp call successful", "tool", toolName)
+	// Parse response body into the result struct
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read mcp response: %w", err)
+	}
+
+	if result != nil {
+		if err := json.Unmarshal(respBody, result); err != nil {
+			return fmt.Errorf("parse mcp response: %w", err)
+		}
+	}
+
+	slog.Debug("mcp call successful", "tool", toolName, "response", string(respBody))
 	return nil
 }
 
@@ -64,40 +76,46 @@ func (h *HostClient) BlockFocusTime(ctx context.Context, userID string, duration
 		title = "Deep Work"
 	}
 
-	_ = h.callTool(ctx, "block_focus_time", map[string]interface{}{
+	result := &FocusTimeResult{}
+	err := h.callTool(ctx, "block_focus_time", map[string]interface{}{
 		"user_id":          userID,
 		"duration_minutes": durationMinutes,
 		"title":            title,
-	})
+	}, result)
+	if err != nil {
+		return nil, fmt.Errorf("mcp block focus time: %w", err)
+	}
 
-	slog.Info("focus time blocked via mcp", "user", userID, "duration", durationMinutes)
-
-	return &FocusTimeResult{
-		Blocked: true,
-		EndTime: time.Now().Add(time.Duration(durationMinutes) * time.Minute).Format(time.RFC3339),
-	}, nil
+	slog.Info("focus time blocked via mcp", "user", userID, "duration", durationMinutes, "event_id", result.EventID)
+	return result, nil
 }
 
 // GetUserStatus checks the user's current calendar status via MCP.
 func (h *HostClient) GetUserStatus(ctx context.Context, userID string, checkNextMinutes int) (*UserStatusResult, error) {
-	_ = h.callTool(ctx, "get_user_status", map[string]interface{}{
+	result := &UserStatusResult{}
+	err := h.callTool(ctx, "get_user_status", map[string]interface{}{
 		"user_id":            userID,
 		"check_next_minutes": checkNextMinutes,
-	})
+	}, result)
+	if err != nil {
+		return nil, fmt.Errorf("mcp get user status: %w", err)
+	}
 
-	return &UserStatusResult{
-		Status: "available",
-	}, nil
+	return result, nil
 }
 
 // SetSlackStatus sets the user's Slack status via MCP.
 func (h *HostClient) SetSlackStatus(ctx context.Context, userID, statusText, statusEmoji string, expirationMinutes int) error {
-	_ = h.callTool(ctx, "set_slack_status", map[string]interface{}{
+	result := make(map[string]interface{})
+	err := h.callTool(ctx, "set_slack_status", map[string]interface{}{
 		"user_id":            userID,
 		"status_text":        statusText,
 		"status_emoji":       statusEmoji,
 		"expiration_minutes": expirationMinutes,
-	})
+	}, &result)
+	if err != nil {
+		return fmt.Errorf("mcp set slack status: %w", err)
+	}
 
 	slog.Info("slack status set via mcp", "user", userID, "text", statusText)
 	return nil

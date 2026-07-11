@@ -50,11 +50,31 @@ func (d *DigestService) HandleSlashCommand(ctx context.Context, cmd *slack.Slash
 		return fmt.Errorf("open dm: %w", err)
 	}
 
-	// Get user's mentions/replies (in production, this would batched from Slack API)
+	// Fetch recent user messages via Slack Search API for the on-demand digest
+	recentMessages, err := d.slack.SearchMessages(
+		fmt.Sprintf("from:@%s OR to:@%s after:today", cmd.UserID, cmd.UserID),
+		slack.SearchParameters{Sort: "timestamp", Count: 25, SortDirection: "desc"},
+	)
+
+	var digestItems []string
+	if err == nil && recentMessages != nil && len(recentMessages.Matches) > 0 {
+		for i, match := range recentMessages.Matches {
+			if i >= 5 {
+				break
+			}
+			digestItems = append(digestItems, fmt.Sprintf("• <#%s>: %s", match.Channel.ID, match.Text))
+		}
+	}
+
+	digestSummary := "No recent mentions found."
+	if len(digestItems) > 0 {
+		digestSummary = strings.Join(digestItems, "\n")
+	}
+
 	blocks := []slack.Block{
 		slack.NewSectionBlock(
 			slack.NewTextBlockObject("mrkdwn",
-				"📬 *On-Demand Digest*\n\nI'm preparing your digest now. This feature is fully functional with a connected Slack workspace. For now, here's a summary of what I track:\n\n• @mentions in channels\n• Thread replies\n• Direct messages\n• Channel activity since last digest",
+				fmt.Sprintf("📬 *On-Demand Digest*\n\nHere are your recent mentions today:\n\n%s\n\nUse `/digest` anytime or set Quiet Hours in preferences for automatic delivery.", digestSummary),
 				false, false,
 			),
 			nil, nil,

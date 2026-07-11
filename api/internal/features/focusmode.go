@@ -80,10 +80,57 @@ func (f *FocusModeService) HandleBlockAction(ctx context.Context, action *slack.
 	case "focus_mute_30":
 		return f.muteChannel(ctx, channelID, user.SlackUserID)
 	case "focus_open_thread":
-		_ = channelID
-		_ = user
-		// Future: open thread with summary
-		return nil
+		// Post summary in thread for context
+		messages, err := f.slack.GetChannelHistory(channelID, 50)
+		if err != nil {
+			return f.slack.PostEphemeral(channelID, user.SlackUserID,
+				[]slack.Block{
+					slack.NewSectionBlock(
+						slack.NewTextBlockObject("mrkdwn", "Opening thread summary...", false, false),
+						nil, nil,
+					),
+				},
+				"Thread Summary",
+			)
+		}
+		var messageTexts []string
+		for _, msg := range messages {
+			if msg.Text != "" {
+				messageTexts = append(messageTexts, msg.Text)
+			}
+		}
+		summary, err := f.ai.SummarizeFocus(ctx, messageTexts)
+		if err != nil {
+			return f.slack.PostEphemeral(channelID, user.SlackUserID,
+				[]slack.Block{
+					slack.NewSectionBlock(
+						slack.NewTextBlockObject("mrkdwn", "Could not generate thread summary right now.", false, false),
+						nil, nil,
+					),
+				},
+				"Summary Error",
+			)
+		}
+		var text string
+		if summary.NoDecisions {
+			text = "No formal decisions found in this thread."
+		} else {
+			for _, d := range summary.Decisions {
+				text += fmt.Sprintf("✅ *%s*\n", d.Decision)
+				for _, a := range d.ActionItems {
+					text += fmt.Sprintf("   ↳ %s — Owner: %s — Due: %s\n", a.Description, a.Owner, a.Due)
+				}
+			}
+		}
+		return f.slack.PostMessage(channelID,
+			[]slack.Block{
+				slack.NewSectionBlock(
+					slack.NewTextBlockObject("mrkdwn", fmt.Sprintf("*Thread Summary*\n\n%s", text), false, false),
+					nil, nil,
+				),
+			},
+			"Thread Summary",
+		)
 	}
 
 	return nil

@@ -2,6 +2,7 @@ package features
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/LSUDOKOS/signal/internal/domain"
@@ -10,6 +11,17 @@ import (
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 )
+
+var neurotypes = []struct {
+	Value string
+	Label string
+}{
+	{Value: "adhd", Label: "ADHD"},
+	{Value: "autism", Label: "Autistic"},
+	{Value: "anxiety", Label: "Anxiety"},
+	{Value: "unspecified", Label: "Unsure"},
+	{Value: "ally", Label: "Ally"},
+}
 
 // Controller dispatches Slack events to the appropriate feature handlers.
 type Controller struct {
@@ -262,4 +274,5 @@ type SlackAPI interface {
 	GetChannelHistory(channelID string, limit int) ([]slack.Message, error)
 	SearchMessages(query string, params slack.SearchParameters) (*slack.SearchMessages, error)
 	SetUserStatus(userID, statusText, statusEmoji string, expiration int) error
+	PublishView(userID string, blocks []slack.Block) error
 }

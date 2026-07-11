@@ -120,7 +120,10 @@ func (s *Server) handleSlackOAuth(w http.ResponseWriter, r *http.Request) {
 		Error     string `json:"error,omitempty"`
 		BotToken  string `json:"access_token"`
 		BotUserID string `json:"bot_user_id"`
-		TeamName  string `json:"team_name"`
+		Team      struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"team"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
@@ -137,11 +140,24 @@ func (s *Server) handleSlackOAuth(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("oauth successful",
 		"bot_user", tokenResp.BotUserID,
-		"team", tokenResp.TeamName,
+		"team_id", tokenResp.Team.ID,
+		"team_name", tokenResp.Team.Name,
 	)
 
-	// Store session token in database (future: create user record)
-	_ = tokenResp
+	// Create a placeholder user record for the bot in this team so the install
+	// is tracked in the database. The actual user records are created on first
+	// interaction via ensureUser().
+	if tokenResp.BotUserID != "" {
+		placeholderUser := &domain.User{
+			SlackUserID:  tokenResp.BotUserID,
+			SlackTeamID:  tokenResp.Team.ID,
+			DisplayName:  fmt.Sprintf("Signal Bot (%s)", tokenResp.Team.Name),
+		}
+		if err := s.userRepo.Create(r.Context(), placeholderUser); err != nil {
+			// User may already exist from a previous install; log but don't fail
+			slog.Warn("oauth: could not create placeholder user (may already exist)", "error", err)
+		}
+	}
 
 	// Redirect to frontend with success
 	http.Redirect(w, r, fmt.Sprintf("%s/app-home?install=success", s.config.FrontendURL), http.StatusFound)

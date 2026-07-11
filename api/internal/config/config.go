@@ -61,8 +61,10 @@ type RedisConfig struct {
 }
 
 type MCPConfig struct {
-	ServerURL string `env:"SERVER_URL" env-default:"http://localhost:3001/sse"`
-	Timeout   string `env:"SERVER_TIMEOUT" env-default:"30s"`
+	ServerURL           string `env:"SERVER_URL" env-default:"http://localhost:3001/sse"`
+	Timeout             string `env:"SERVER_TIMEOUT" env-default:"30s"`
+	CalendarCredsPath   string `env:"CALENDAR_CREDENTIALS_PATH" env-default:""`
+	CalendarID          string `env:"CALENDAR_ID" env-default:"primary"`
 }
 
 // Load reads configuration from environment variables and optional .env file.

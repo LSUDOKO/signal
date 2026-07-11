@@ -29,6 +29,10 @@ func main() {
 	}
 	observability.SetupLogging(cfg.App.LogLevel)
 
+	// Initialize Prometheus metrics (auto-registers via promauto)
+	metrics := observability.NewMetrics()
+	_ = metrics // Metrics are registered via promauto; /metrics endpoint serves them
+
 	slog.Info("starting Signal API server",
 		"env", cfg.App.Env,
 		"version", "1.0.0",

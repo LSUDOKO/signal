@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Brain, Save, ArrowLeft, Zap, Shuffle, Bell, Shield, Moon } from "lucide-react";
+import { Brain, Save, ArrowLeft, Zap, Bell, Shield, Moon } from "lucide-react";
 import Link from "next/link";
 
 const prefsSchema = z.object({

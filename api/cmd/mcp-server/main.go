@@ -21,7 +21,27 @@ func main() {
 
 	log.Printf("starting signal MCP server on port %s", port)
 
-	handler := &mcp.ToolHandler{}
+	// Initialize Google Calendar client if credentials are configured
+	calendarCredsPath := os.Getenv("GOOGLE_CALENDAR_CREDENTIALS")
+	calendarID := os.Getenv("GOOGLE_CALENDAR_ID")
+	if calendarID == "" {
+		calendarID = "primary"
+	}
+
+	calendarClient, err := mcp.NewGoogleCalendarClient(context.Background(), calendarCredsPath, calendarID)
+	if err != nil {
+		log.Printf("WARNING: failed to initialize Google Calendar: %v", err)
+		log.Println("Calendar features will fall back to mock data")
+	}
+	if calendarClient != nil {
+		log.Println("Google Calendar integration enabled")
+	} else {
+		log.Println("No Google Calendar credentials configured, using mock calendar")
+	}
+
+	handler := &mcp.ToolHandler{
+		CalendarClient: calendarClient,
+	}
 
 	mux := http.NewServeMux()
 

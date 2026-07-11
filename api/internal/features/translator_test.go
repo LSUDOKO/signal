@@ -176,6 +176,10 @@ func (m *mockSlackAPI) SetUserStatus(userID, statusText, statusEmoji string, exp
 	return nil
 }
 
+func (m *mockSlackAPI) PublishView(userID string, blocks []slack.Block) error {
+	return nil
+}
+
 // TestHandleMessage_NoAmbiguousPhrase verifies messages without ambiguous phrases are skipped.
 func TestHandleMessage_NoAmbiguousPhrase(t *testing.T) {
 	svc := &TranslatorService{}

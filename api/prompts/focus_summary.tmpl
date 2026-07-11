@@ -1,0 +1,13 @@
+Extract a decision tree from this Slack channel history.
+Only include: decisions made, action items with owners, and deadlines.
+Ignore small talk, greetings, emojis, and reactions.
+
+Format strictly as:
+✅ [Decision made]
+   ↳ [Action item] — Owner: @Name — Due: [Date or "None"]
+   ↳ [Action item] — Owner: @Name — Due: [Date or "None"]
+
+If no decisions were made, say: "No decisions found. Discussion was exploratory."
+
+History:
+{{.Messages}}

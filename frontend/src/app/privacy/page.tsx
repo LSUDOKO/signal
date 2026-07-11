@@ -39,7 +39,7 @@ export default function Privacy() {
           <p>Message content is processed in-memory and discarded immediately after AI analysis. User preferences are stored until the app is uninstalled or you delete your account.</p>
 
           <h2>Third-Party Services</h2>
-          <p>Signal uses OpenAI&apos;s API (GPT-4o-mini) for AI analysis. Messages sent to OpenAI are not used for training. See <a href="https://openai.com/policies/privacy-policy">OpenAI&apos;s Privacy Policy</a>.</p>
+          <p>Signal uses Groq AI for message analysis (tone analysis, summarization, semantic search). Messages sent to Groq are not used for training. See <a href="https://groq.com/privacy">Groq&apos;s Privacy Policy</a>.</p>
 
           <h2>Contact</h2>
           <p>For privacy concerns, open an issue on <a href="https://github.com/LSUDOKOS/signal">GitHub</a> or email privacy@signal-slack.app.</p>

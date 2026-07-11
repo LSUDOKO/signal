@@ -112,7 +112,7 @@ func main() {
 
 	featureCtrl := features.NewController(
 		focusMode, translator, catchup, digest, deepWork,
-		userRepo, prefsRepo, rtsSearcher,
+		userRepo, prefsRepo, rtsSearcher, slackAPI,
 	)
 
 	// Set the feature controller on the slack handler

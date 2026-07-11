@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Server is the HTTP API server.
@@ -72,8 +73,8 @@ func (s *Server) registerRoutes() {
 		r.Put("/users/{userID}/preferences", s.handleUpdatePreferences)
 	})
 
-	// Metrics
-	s.router.Get("/metrics", s.handleMetrics)
+	// Prometheus metrics (real metrics defined in observability/metrics.go)
+	s.router.Handle("/metrics", promhttp.Handler())
 }
 
 // Handler returns the HTTP handler for use with http.Server.
@@ -212,17 +213,6 @@ func (s *Server) handleUpdatePreferences(w http.ResponseWriter, r *http.Request)
 
 	slog.Info("preferences updated", "user", userID)
 	respondJSON(w, http.StatusOK, prefs)
-}
-
-func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
-	// Prometheus metrics are collected and exposed via the /metrics endpoint
-	// Metrics are defined in observability/metrics.go
-	// This endpoint is wired for promhttp.Handler in production
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintln(w, "# Signal metrics endpoint ready")
-	fmt.Fprintln(w, "# Wire promhttp.HandlerFor for full Prometheus scrape support")
-	fmt.Fprintln(w, "signal_build_info{version=\"1.0.0\"} 1")
 }
 
 func respondJSON(w http.ResponseWriter, status int, data interface{}) {

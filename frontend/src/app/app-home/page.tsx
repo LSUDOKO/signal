@@ -53,10 +53,23 @@ export default function AppHome() {
 
   const onSubmit = async (data: PrefsForm) => {
     setSaving(true);
-    // Simulate API call
-    await new Promise((r) => setTimeout(r, 800));
-    toast.success("Preferences saved! Signal will adapt to your settings.");
-    setSaving(false);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+      const response = await fetch(`${apiUrl}/api/v1/users/me/preferences`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) {
+        throw new Error(`API returned ${response.status}`);
+      }
+      toast.success("Preferences saved! Signal will adapt to your settings.");
+    } catch (err) {
+      toast.error("Could not save preferences. Is the API server running?");
+      console.error("Save error:", err);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (

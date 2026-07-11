@@ -1,0 +1,208 @@
+# .golangci.yml — Signal Project Linter Configuration
+run:
+  concurrency: 4
+  timeout: 5m
+  issues-exit-code: 1
+  tests: true
+  modules-download-mode: readonly
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - containedctx
+    - contextcheck
+    - copyloopvar
+    - decorder
+    - dupl
+    - dupword
+    - durationcheck
+    - errchkjson
+    - errname
+    - errorlint
+    - execinquery
+    - exhaustive
+    - fatcontext
+    - forcetypeassert
+    - gocheckcompilerdirectives
+    - goconst
+    - gocritic
+    - godot
+    - gofmt
+    - gofumpt
+    - goheader
+    - goimports
+    - gomoddirectives
+    - gomodguard
+    - goprintffuncname
+    - gosec
+    - importas
+    - intrange
+    - lll
+    - loggercheck
+    - makezero
+    - mirror
+    - musttag
+    - nakedret
+    - nestif
+    - nilerr
+    - nilnil
+    - noctx
+    - nolintlint
+    - nosprintfhostport
+    - perfsprint
+    - prealloc
+    - predeclared
+    - promlinter
+    - protogetter
+    - reassign
+    - revive
+    - rowserrcheck
+    - sloglint
+    - spancheck
+    - sqlclosecheck
+    - stylecheck
+    - tagalign
+    - tagliatelle
+    - tenv
+    - testableexamples
+    - testifylint
+    - testpackage
+    - thelper
+    - tparallel
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - wastedassign
+    - whitespace
+    - wrapcheck
+    - wsl
+    - zerologlint
+
+  disable:
+    - cyclop
+    - depguard
+    - funlen
+    - gci
+    - ginkgolinter
+    - gochecknoglobals
+    - gochecknoinits
+    - gocognit
+    - gocyclo
+    - godox
+    - golint
+    - gomnd
+    - ifshort
+    - interfacer
+    - ireturn
+    - maintidx
+    - maligned
+    - nlreturn
+    - nosnakecase
+    - paralleltest
+    - scopelint
+    - varnamelen
+    - wsl
+    - exhaustruct
+    - nonamedreturns
+
+linters-settings:
+  gofmt:
+    simplify: true
+  goimports:
+    local-prefixes: github.com/LSUDOKOS/signal
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment
+      - shadow
+  revive:
+    rules:
+      - name: exported
+        severity: warning
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: if-return
+      - name: increment-decrement
+      - name: var-naming
+      - name: var-declaration
+      - name: package-comments
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: unexported-return
+      - name: indent-error-flow
+      - name: errorf
+      - name: empty-block
+      - name: superfluous-else
+      - name: unused-parameter
+      - name: unreachable-code
+      - name: redefines-builtin-id
+  gosec:
+    excludes:
+      - G101
+      - G104
+      - G204
+      - G301
+      - G304
+      - G307
+  lll:
+    line-length: 140
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+  nestif:
+    min-complexity: 5
+  prealloc:
+    simple: true
+    range-loops: true
+    for-loops: true
+
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 10
+  exclude-use-default: false
+  exclude:
+    - "G104" # Errors unhandled in test functions
+    - "should have a package comment"
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+        - noctx
+        - wrapcheck
+        - errchkjson
+        - forcetypeassert
+    - path: cmd/
+      linters:
+        - errcheck
+        - wrapcheck
+    - path: internal/store/postgres/
+      linters:
+        - errcheck
+    - path: internal/config/
+      linters:
+        - unused

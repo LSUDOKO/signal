@@ -39,6 +39,12 @@ func main() {
 	}
 	defer db.Close()
 
+	// Run database migrations
+	if err := postgres.RunMigrations(ctx, db.Pool(), "db/migrations"); err != nil {
+		slog.Error("database migration failed", "error", err)
+		os.Exit(1)
+	}
+
 	// Initialize repositories
 	userRepo := postgres.NewUserRepository(db)
 	prefsRepo := postgres.NewPreferencesRepository(db)

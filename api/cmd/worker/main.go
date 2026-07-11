@@ -59,7 +59,7 @@ func main() {
 	defer cache.Close()
 
 	// Initialize AI client
-	aiClient := ai.NewClient(cfg.OpenAI.APIKey, cfg.OpenAI.Model)
+	aiClient := ai.NewClient(cfg.OpenAI.APIKey, cfg.OpenAI.Model, cfg.OpenAI.BaseURL)
 
 	// Initialize MCP client (optional)
 	var mcpHostClient *mcpclient.HostClient

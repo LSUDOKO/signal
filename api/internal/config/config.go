@@ -34,8 +34,9 @@ type SlackConfig struct {
 }
 
 type OpenAIConfig struct {
-	APIKey string `env:"API_KEY" env-required:"true"`
-	Model  string `env:"MODEL" env-default:"gpt-4o-mini"`
+	APIKey  string `env:"API_KEY" env-required:"true"`
+	Model   string `env:"MODEL" env-default:"gpt-4o-mini"`
+	BaseURL string `env:"BASE_URL" env-default:"https://api.openai.com/v1"`
 }
 
 type DBConfig struct {

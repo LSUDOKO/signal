@@ -19,6 +19,7 @@ import (
 	"github.com/LSUDOKOS/signal/internal/store/redis"
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
+	"github.com/slack-go/slack"
 )
 
 func main() {
@@ -90,8 +91,11 @@ func main() {
 		},
 	)
 
-	// Initialize digest service (SlackAPI is nil for worker; uses MCP for calendar checks)
-	digestService := features.NewDigestService(nil, aiClient, digestRepo, userRepo, prefsRepo, cache)	// Create mux and register handlers
+	// Initialize Slack API client for sending digests
+	slackAPI := newWorkerSlackAPI(cfg.Slack.BotToken)
+	digestService := features.NewDigestService(slackAPI, aiClient, digestRepo, userRepo, prefsRepo, cache)
+
+	// Create mux and register handlers
 	mux := asynq.NewServeMux()
 
 	mux.HandleFunc("digest:send", func(ctx context.Context, t *asynq.Task) error {
@@ -219,4 +223,70 @@ func startDigestScheduler(ctx context.Context, prefsRepo *postgres.PreferencesRe
 			}
 		}
 	}
+}
+
+// workerSlackAPI is a minimal SlackAPI adapter for the worker process.
+// It wraps slack.Client to provide the SlackAPI interface without Socket Mode.
+type workerSlackAPI struct {
+	api *slack.Client
+}
+
+func newWorkerSlackAPI(botToken string) *workerSlackAPI {
+	return &workerSlackAPI{
+		api: slack.New(botToken),
+	}
+}
+
+func (w *workerSlackAPI) PostMessage(channelID string, blocks []slack.Block, text string) error {
+	_, _, err := w.api.PostMessage(channelID, slack.MsgOptionBlocks(blocks...), slack.MsgOptionText(text, false))
+	return err
+}
+
+func (w *workerSlackAPI) PostEphemeral(channelID, userID string, blocks []slack.Block, text string) error {
+	_, err := w.api.PostEphemeral(channelID, userID, slack.MsgOptionBlocks(blocks...), slack.MsgOptionText(text, false))
+	return err
+}
+
+func (w *workerSlackAPI) OpenDMChannel(userID string) (string, error) {
+	ch, _, _, err := w.api.OpenConversation(&slack.OpenConversationParameters{Users: []string{userID}})
+	if err != nil {
+		return "", err
+	}
+	return ch.ID, nil
+}
+
+func (w *workerSlackAPI) GetUser(userID string) (*slack.User, error) {
+	return w.api.GetUserInfo(userID)
+}
+
+func (w *workerSlackAPI) GetChannelHistory(channelID string, limit int) ([]slack.Message, error) {
+	resp, err := w.api.GetConversationHistory(&slack.GetConversationHistoryParameters{
+		ChannelID: channelID,
+		Limit:     limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Messages, nil
+}
+
+func (w *workerSlackAPI) SearchMessages(query string, params slack.SearchParameters) (*slack.SearchMessages, error) {
+	result, err := w.api.SearchMessages(query, params)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (w *workerSlackAPI) SetUserStatus(userID, statusText, statusEmoji string, expiration int) error {
+	// worker doesn't need user status setting; no-op
+	return nil
+}
+
+func (w *workerSlackAPI) PublishView(userID string, blocks []slack.Block) error {
+	_, err := w.api.PublishView(userID, slack.HomeTabViewRequest{
+		Type:   "home",
+		Blocks: slack.Blocks{BlockSet: blocks},
+	}, "")
+	return err
 }

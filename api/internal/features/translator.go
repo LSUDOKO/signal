@@ -62,12 +62,6 @@ func (t *TranslatorService) HandleMessage(ctx context.Context, event *slackevent
 		}
 	}
 
-	// Extract mentioned users
-	mentionedUsers := t.extractMentionedUsers(event.Text)
-	if len(mentionedUsers) == 0 {
-		return nil
-	}
-
 	// Analyze tone
 	analysis, err := t.ai.AnalyzeTone(ctx, event.Text)
 	if err != nil {
@@ -75,10 +69,20 @@ func (t *TranslatorService) HandleMessage(ctx context.Context, event *slackevent
 		return nil // Don't fail the message flow
 	}
 
-	// Send DM to each mentioned user
-	for _, mentionedUser := range mentionedUsers {
-		if err := t.sendTranslationDM(ctx, mentionedUser, event, analysis); err != nil {
-			slog.Error("failed to send translation dm", "error", err, "user", mentionedUser)
+	// Extract mentioned users
+	mentionedUsers := t.extractMentionedUsers(event.Text)
+
+	// Send translation DM: to mentioned users if any, otherwise to the current user
+	if len(mentionedUsers) > 0 {
+		for _, mentionedUser := range mentionedUsers {
+			if err := t.sendTranslationDM(ctx, mentionedUser, event, analysis); err != nil {
+				slog.Error("failed to send translation dm", "error", err, "user", mentionedUser)
+			}
+		}
+	} else {
+		// No @-mentions but ambiguous language detected; send to the current user
+		if err := t.sendTranslationDM(ctx, user.SlackUserID, event, analysis); err != nil {
+			slog.Error("failed to send translation dm to user", "error", err)
 		}
 	}
 

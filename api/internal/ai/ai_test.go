@@ -1,4 +1,4 @@
-package features
+package ai
 
 import (
 	"testing"
@@ -92,4 +92,41 @@ func TestParseToneResponse_Empty(t *testing.T) {
 	if result.Tone != "" {
 		t.Errorf("empty response should have empty tone, got %q", result.Tone)
 	}
+}
+
+// TestBuildFocusPrompt verifies focus prompt building.
+func TestBuildFocusPrompt(t *testing.T) {
+	messages := []string{"Decision: Use cloud servers", "Action item: Sarah to provide cost breakdown"}
+	prompt := buildFocusPrompt(messages)
+	if prompt == "" {
+		t.Error("buildFocusPrompt should return a non-empty prompt")
+	}
+	if !contains(prompt, "cloud servers") {
+		t.Error("prompt should contain message content")
+	}
+}
+
+// TestBuildCatchUpPrompt verifies catchup prompt building.
+func TestBuildCatchUpPrompt(t *testing.T) {
+	messages := []string{"We decided to move to AWS", "Q3 budget approved at $50K"}
+	prompt := buildCatchUpPrompt(messages)
+	if prompt == "" {
+		t.Error("buildCatchUpPrompt should return a non-empty prompt")
+	}
+	if !contains(prompt, "AWS") {
+		t.Error("prompt should contain message content")
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && searchString(s, substr)
+}
+
+func searchString(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

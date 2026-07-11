@@ -3,18 +3,19 @@ package features
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/LSUDOKOS/signal/internal/domain"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 )
 
-// mockCache implements store.CacheClient for testing focus mode.
+// mockCache implements store.CacheClient for testing.
 type mockCache struct {
 	velocity      int
 	offered       bool
-	deepWork      string
-	lastDigest    int64
+	deepWork      bool
+	lastDigest    time.Time
 	aiLimit       bool
 }
 
@@ -32,7 +33,7 @@ func (m *mockCache) ResetChannelVelocity(ctx context.Context, channelID string) 
 	return nil
 }
 
-func (m *mockCache) SetFocusOffered(ctx context.Context, channelID string, ttlMinutes int) error {
+func (m *mockCache) SetFocusOffered(ctx context.Context, channelID string, ttl time.Duration) error {
 	m.offered = true
 	return nil
 }
@@ -41,24 +42,28 @@ func (m *mockCache) HasFocusBeenOffered(ctx context.Context, channelID string) (
 	return m.offered, nil
 }
 
-func (m *mockCache) SetSession(ctx context.Context, slackUserID string, accessToken string, ttlMinutes int) error { return nil }
-
-func (m *mockCache) GetSession(ctx context.Context, slackUserID string) (string, error) { return "", nil }
-
-func (m *mockCache) SetDeepWork(ctx context.Context, userID string, durationMinutes int) error {
-	m.deepWork = "active"
+func (m *mockCache) SetSession(ctx context.Context, slackUserID string, accessToken string, ttl time.Duration) error {
 	return nil
 }
 
-func (m *mockCache) GetDeepWork(ctx context.Context, userID string) (int, error) {
-	if m.deepWork != "" {
-		return 120, nil
+func (m *mockCache) GetSession(ctx context.Context, slackUserID string) (string, error) {
+	return "", nil
+}
+
+func (m *mockCache) SetDeepWork(ctx context.Context, userID string, duration time.Duration) error {
+	m.deepWork = true
+	return nil
+}
+
+func (m *mockCache) GetDeepWork(ctx context.Context, userID string) (time.Duration, error) {
+	if m.deepWork {
+		return 120 * time.Minute, nil
 	}
 	return 0, nil
 }
 
 func (m *mockCache) ClearDeepWork(ctx context.Context, userID string) error {
-	m.deepWork = ""
+	m.deepWork = false
 	return nil
 }
 
@@ -66,9 +71,14 @@ func (m *mockCache) CheckAILimit(ctx context.Context, userID string, limit int) 
 	return true, nil
 }
 
-func (m *mockCache) SetLastDigest(ctx context.Context, userID string, timestamp int64) error { return nil }
+func (m *mockCache) SetLastDigest(ctx context.Context, userID string, timestamp time.Time) error {
+	m.lastDigest = timestamp
+	return nil
+}
 
-func (m *mockCache) GetLastDigest(ctx context.Context, userID string) (int64, error) { return 0, nil }
+func (m *mockCache) GetLastDigest(ctx context.Context, userID string) (time.Time, error) {
+	return m.lastDigest, nil
+}
 
 // TestFocusModeService_HandleMessage_SkipDM verifies DMs are skipped.
 func TestFocusModeService_HandleMessage_SkipDM(t *testing.T) {

@@ -220,10 +220,11 @@ func (c *Controller) ensureUser(ctx context.Context, user *domain.User) (*domain
 
 	existing, err := c.userRepo.GetBySlackID(ctx, user.SlackUserID, user.SlackTeamID)
 	if err != nil {
-		// User doesn't exist, create new user
+		// User doesn't exist, create new user with default neurotype
 		newUser := &domain.User{
 			SlackUserID: user.SlackUserID,
 			SlackTeamID: user.SlackTeamID,
+			Neurotype:   "unspecified", // Default neurotype to satisfy DB constraint
 		}
 		if err := c.userRepo.Create(ctx, newUser); err != nil {
 			// If we can't create the user, log but return the basic user object

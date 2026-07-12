@@ -28,6 +28,12 @@ func NewCatchUpService(slack SlackAPI, ai *ai.Client, searcher *rts.Searcher) *C
 func (c *CatchUpService) HandleSlashCommand(ctx context.Context, cmd *slack.SlashCommand, user *domain.User) error {
 	query := strings.TrimSpace(cmd.Text)
 	if query == "" {
+		// Send help to DM
+		dmChannel, err := c.slack.OpenDMChannel(cmd.UserID)
+		if err != nil {
+			slog.Error("failed to open dm for catchup help", "error", err)
+			return err
+		}
 		blocks := []slack.Block{
 			slack.NewSectionBlock(
 				slack.NewTextBlockObject("mrkdwn",
@@ -37,13 +43,27 @@ func (c *CatchUpService) HandleSlashCommand(ctx context.Context, cmd *slack.Slas
 				nil, nil,
 			),
 		}
-		return c.slack.PostMessage(cmd.ChannelID, blocks, "Catch-Up Help")
+		return c.slack.PostMessage(dmChannel, blocks, "Catch-Up Help")
 	}
 
-	// Perform semantic search
+	// Perform semantic search (might take 2-3 seconds)
 	result, err := c.searchAndSummarize(ctx, cmd.UserID, query, 7)
 	if err != nil {
-		return fmt.Errorf("catchup search: %w", err)
+		slog.Error("catchup search failed", "error", err, "query", query)
+		// Send error to user's DM
+		dmChannel, dmErr := c.slack.OpenDMChannel(cmd.UserID)
+		if dmErr != nil {
+			return fmt.Errorf("catchup search: %w, open dm: %w", err, dmErr)
+		}
+		return c.slack.PostMessage(dmChannel,
+			[]slack.Block{
+				slack.NewSectionBlock(
+					slack.NewTextBlockObject("mrkdwn", "❌ Sorry, I couldn't search for that right now. Please try again in a moment.", false, false),
+					nil, nil,
+				),
+			},
+			"Catch-Up Error",
+		)
 	}
 
 	// Post result to DM

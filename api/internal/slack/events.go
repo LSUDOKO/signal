@@ -81,14 +81,19 @@ func (h *EventHandler) eventLoop(ctx context.Context) {
 func (h *EventHandler) handleEvent(ctx context.Context, event socketmode.Event) {
 	switch event.Type {
 	case socketmode.EventTypeEventsAPI:
-		h.handleEventsAPI(ctx, event)
+		if event.Request != nil {
+			h.handleEventsAPI(ctx, event)
+		}
 	case socketmode.EventTypeInteractive:
-		h.handleInteractive(ctx, event)
+		if event.Request != nil {
+			h.handleInteractive(ctx, event)
+		}
 	case socketmode.EventTypeSlashCommand:
-		h.handleSlashCommand(ctx, event)
+		if event.Request != nil {
+			h.handleSlashCommand(ctx, event)
+		}
 	case socketmode.EventTypeConnected:
 		slog.Info("slack socket mode connected")
-		h.client.Ack(*event.Request)
 	default:
 		slog.Debug("unhandled socket event type", "type", event.Type)
 		if event.Request != nil {
@@ -104,11 +109,15 @@ func (h *EventHandler) handleEventsAPI(ctx context.Context, se socketmode.Event)
 		return
 	}
 
+	// Ack synchronously — must be fast to keep Slack happy
 	h.client.Ack(*se.Request)
 
+	// Process events asynchronously so the event loop stays responsive
+	asyncCtx := context.WithoutCancel(ctx)
 	switch eventData.Type {
 	case slackevents.CallbackEvent:
-		h.handleCallbackEvent(ctx, eventData.InnerEvent)
+		innerEvent := eventData.InnerEvent
+		go h.handleCallbackEvent(asyncCtx, innerEvent)
 	default:
 		slog.Debug("unhandled events API type", "type", eventData.Type)
 	}
@@ -135,7 +144,13 @@ func (h *EventHandler) handleMessageEvent(ctx context.Context, event *slackevent
 		return
 	}
 
+	// Skip message subtypes we don't handle (message_changed, message_deleted, etc.)
+	if event.SubType != "" && event.SubType != "bot_message" {
+		return
+	}
+
 	if h.featureCtrl == nil {
+		slog.Warn("feature controller is nil, skipping message")
 		return
 	}
 
@@ -182,6 +197,7 @@ func (h *EventHandler) handleInteractive(ctx context.Context, se socketmode.Even
 		return
 	}
 
+	// Ack synchronously — must be fast to keep Slack happy
 	h.client.Ack(*se.Request)
 
 	if h.featureCtrl == nil {
@@ -193,9 +209,14 @@ func (h *EventHandler) handleInteractive(ctx context.Context, se socketmode.Even
 		SlackTeamID: actionEvent.Team.ID,
 	}
 
-	if err := h.featureCtrl.HandleBlockAction(ctx, &actionEvent, user, actionEvent.Team.ID); err != nil {
-		slog.Error("error handling block action", "error", err)
-	}
+	// Process block action asynchronously so the event loop stays responsive
+	asyncCtx := context.WithoutCancel(ctx)
+	actionCopy := actionEvent
+	go func() {
+		if err := h.featureCtrl.HandleBlockAction(asyncCtx, &actionCopy, user, actionCopy.Team.ID); err != nil {
+			slog.Error("error handling block action", "error", err)
+		}
+	}()
 }
 
 func (h *EventHandler) handleSlashCommand(ctx context.Context, se socketmode.Event) {
@@ -204,7 +225,12 @@ func (h *EventHandler) handleSlashCommand(ctx context.Context, se socketmode.Eve
 		return
 	}
 
-	h.client.Ack(*se.Request)
+	// Acknowledge immediately with an ephemeral "processing" message
+	// (Slack requires a response within 3 seconds or it shows "app did not respond")
+	h.client.Ack(*se.Request, map[string]interface{}{
+		"response_type": "ephemeral",
+		"text":          "⏳ Working on your request...",
+	})
 
 	if h.featureCtrl == nil {
 		return
@@ -215,9 +241,17 @@ func (h *EventHandler) handleSlashCommand(ctx context.Context, se socketmode.Eve
 		SlackTeamID: cmd.TeamID,
 	}
 
-	if err := h.featureCtrl.HandleCommand(ctx, &cmd, user); err != nil {
-		slog.Error("error handling command", "error", err, "command", cmd.Command)
-	}
+	// Process the command asynchronously — the ack already confirmed receipt
+	// to Slack, and the final result will be posted via chat.postMessage
+	// by the feature handler. Running in a goroutine keeps the event loop
+	// responsive so Slack doesn't drop the socket connection.
+	asyncCtx := context.WithoutCancel(ctx)
+	cmdCopy := cmd
+	go func() {
+		if err := h.featureCtrl.HandleCommand(asyncCtx, &cmdCopy, user); err != nil {
+			slog.Error("error handling command", "error", err, "command", cmdCopy.Command)
+		}
+	}()
 }
 
 // PostMessage sends a message to a Slack channel.

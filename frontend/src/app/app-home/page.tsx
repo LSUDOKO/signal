@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Brain, Save, ArrowLeft, Zap, Bell, Shield, Moon } from "lucide-react";
+import { Brain, Save, ArrowLeft, Zap, Bell, Shield, Moon, Loader2 } from "lucide-react";
 import Link from "next/link";
+import { getPreferences, updatePreferences, updateUser, getUser, type UserPreferences, type User } from "@/lib/api";
 
 const prefsSchema = z.object({
   neurotype: z.enum(["adhd", "autism", "anxiety", "unspecified", "ally"]),
@@ -32,6 +33,15 @@ const neurotypes = [
 
 export default function AppHome() {
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // Read slack_user_id and team_id from URL query params
+  const slackUserID = typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("slack_user_id") || ""
+    : "";
+  const teamID = typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("team_id") || ""
+    : "";
 
   const form = useForm<PrefsForm>({
     resolver: zodResolver(prefsSchema),
@@ -48,25 +58,62 @@ export default function AppHome() {
     },
   });
 
+  // Load preferences and user info from API on mount
+  useEffect(() => {
+    if (!slackUserID) {
+      setLoading(false);
+      return;
+    }
+    Promise.all([
+      getPreferences(slackUserID, teamID),
+      getUser(slackUserID, teamID).catch(() => null),
+    ])
+      .then(([prefs, user]) => {
+        form.reset({
+          neurotype: (user?.neurotype as PrefsForm["neurotype"]) || "unspecified",
+          focus_mode_enabled: prefs.focus_mode_enabled ?? true,
+          focus_threshold: prefs.focus_threshold ?? 50,
+          translator_enabled: prefs.translator_enabled ?? true,
+          digest_enabled: prefs.digest_enabled ?? false,
+          digest_hour: prefs.digest_hour ?? 16,
+          deep_work_auto_detect: prefs.deep_work_auto_detect ?? false,
+          quiet_hours_start: prefs.quiet_hours_start || "22:00",
+          quiet_hours_end: prefs.quiet_hours_end || "08:00",
+        });
+      })
+      .catch(() => {
+        // Use defaults on error
+      })
+      .finally(() => setLoading(false));
+  }, [slackUserID, teamID, form]);
+
   const watchNeurotype = form.watch("neurotype");
   const watchDigest = form.watch("digest_enabled");
 
   const onSubmit = async (data: PrefsForm) => {
     setSaving(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
-      const response = await fetch(`${apiUrl}/api/v1/users/me/preferences`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) {
-        throw new Error(`API returned ${response.status}`);
+      const payload: Record<string, unknown> = {
+        focus_mode_enabled: data.focus_mode_enabled,
+        focus_threshold: data.focus_threshold,
+        translator_enabled: data.translator_enabled,
+        digest_enabled: data.digest_enabled,
+        digest_hour: data.digest_hour,
+        deep_work_auto_detect: data.deep_work_auto_detect,
+        quiet_hours_start: data.quiet_hours_start,
+        quiet_hours_end: data.quiet_hours_end,
+      };
+      if (slackUserID) {
+        await Promise.all([
+          updatePreferences(slackUserID, teamID, payload),
+          updateUser(slackUserID, teamID, { neurotype: data.neurotype }),
+        ]);
+      } else {
+        await new Promise((r) => setTimeout(r, 800));
       }
       toast.success("Preferences saved! Signal will adapt to your settings.");
-    } catch (err) {
-      toast.error("Could not save preferences. Is the API server running?");
-      console.error("Save error:", err);
+    } catch {
+      toast.error("Failed to save preferences. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -89,6 +136,21 @@ export default function AppHome() {
       </header>
 
       <main className="mx-auto max-w-3xl px-6 py-12">
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-24">
+            <Loader2 className="h-8 w-8 animate-spin text-signal-blue mb-4" />
+            <p className="text-zinc-500 dark:text-zinc-400">Loading your preferences...</p>
+          </div>
+        ) : slackUserID ? null : (
+          <div className="glass rounded-xl p-6 mb-8 text-center">
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              Install Signal to save your preferences.{" "}
+              <a href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/oauth/start`} className="text-signal-blue font-medium hover:underline">
+                Add to Slack
+              </a>
+            </p>
+          </div>
+        )}
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-10">
           {/* Neurotype */}
           <section>

@@ -109,9 +109,12 @@ func (c *Controller) HandleAppMention(ctx context.Context, event *slackevents.Ap
 		return err
 	}
 
-	// Provide help message or process command in mention
-	_ = user // Future: could route to help system
-	return nil
+	dmChannel, err := c.slack.OpenDMChannel(user.SlackUserID)
+	if err != nil {
+		return fmt.Errorf("open dm: %w", err)
+	}
+
+	return c.slack.PostMessage(dmChannel, buildHelpBlocks(), "Signal Help")
 }
 
 // HandleBlockAction routes block action events (button clicks) to features.
@@ -198,8 +201,15 @@ func (c *Controller) ensureUser(ctx context.Context, user *domain.User) (*domain
 }
 
 func (c *Controller) handleOpenPreferences(ctx context.Context, cmd *slack.SlashCommand, user *domain.User) error {
-	// Send help message with available commands and preferences link
-	blocks := []slack.Block{
+	dmChannel, err := c.slack.OpenDMChannel(user.SlackUserID)
+	if err != nil {
+		return fmt.Errorf("open dm: %w", err)
+	}
+	return c.slack.PostMessage(dmChannel, buildHelpBlocks(), "Signal Help")
+}
+
+func buildHelpBlocks() []slack.Block {
+	return []slack.Block{
 		slack.NewHeaderBlock(
 			slack.NewTextBlockObject("plain_text", "🧘 Signal — Calm Slack for Neurodivergent Professionals", true, false),
 		),
@@ -217,7 +227,7 @@ func (c *Controller) handleOpenPreferences(ctx context.Context, cmd *slack.Slash
 				slack.NewTextBlockObject("mrkdwn",
 					"*/signal*\nOpen this help menu", false, false),
 				slack.NewTextBlockObject("mrkdwn",
-					"*/translate [message]*\nTranslate ambiguous workplace language", false, false),
+					"*/translate [message]*\nDecode ambiguous workplace language", false, false),
 			},
 			nil,
 		),
@@ -233,14 +243,18 @@ func (c *Controller) handleOpenPreferences(ctx context.Context, cmd *slack.Slash
 		),
 		slack.NewSectionBlock(
 			slack.NewTextBlockObject("mrkdwn",
-				"*/digest*\nForce-send your Quiet Hours Digest now\n\n*Need help?* Visit the support page at /support or open an issue on GitHub.",
+				"*/digest*\nSend an instant digest\n\n*@Signal help*\nShow this menu\n\n*Need help?* Visit <https://github.com/LSUDOKOS/signal|GitHub> or configure preferences from your Slack App Home.",
+			nil,
+		),
+		slack.NewDividerBlock(),
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject("mrkdwn",
+				"*Need help?* Visit <https://github.com/LSUDOKOS/signal|GitHub> or open your Slack App Home to configure preferences.",
 				false, false,
 			),
 			nil, nil,
 		),
 	}
-
-	return c.slack.PostMessage(cmd.ChannelID, blocks, "Signal Help")
 }
 
 func isFocusAction(actionID string) bool {

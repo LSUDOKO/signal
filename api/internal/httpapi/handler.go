@@ -65,12 +65,17 @@ func (s *Server) registerRoutes() {
 	s.router.Get("/health", s.handleHealth)
 
 	// OAuth
+	s.router.Get("/oauth/start", s.handleOAuthStart)
 	s.router.Get("/oauth/slack", s.handleSlackOAuth)
 
 	// API v1
 	s.router.Route("/api/v1", func(r chi.Router) {
 		r.Get("/users/{userID}/preferences", s.handleGetPreferences)
 		r.Put("/users/{userID}/preferences", s.handleUpdatePreferences)
+		r.Get("/user/by-slack", s.handleGetUserBySlack)
+		r.Put("/user/by-slack", s.handleUpdateUserBySlack)
+		r.Get("/preferences/by-slack", s.handleGetPreferencesBySlack)
+		r.Put("/preferences/by-slack", s.handleUpdatePreferencesBySlack)
 	})
 
 	// Prometheus metrics (real metrics defined in observability/metrics.go)
@@ -80,6 +85,33 @@ func (s *Server) registerRoutes() {
 // Handler returns the HTTP handler for use with http.Server.
 func (s *Server) Handler() http.Handler {
 	return s.router
+}
+
+func (s *Server) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
+	scopes := []string{
+		"channels:history",
+		"channels:read",
+		"chat:write",
+		"commands",
+		"groups:history",
+		"groups:read",
+		"im:history",
+		"im:read",
+		"im:write",
+		"mpim:history",
+		"mpim:read",
+		"reactions:read",
+		"search:read",
+		"team:read",
+		"users:read",
+		"users:read.email",
+		"users.profile:read",
+		"users.profile:write",
+	}
+	// Slack redirects to the frontend's OAuth callback page, which calls the API
+	redirectURI := fmt.Sprintf("%s/oauth/callback", s.config.FrontendURL)
+	authURL := GetSlackAuthURL(s.config.SlackClientID, redirectURI, scopes)
+	http.Redirect(w, r, authURL, http.StatusFound)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +137,7 @@ func (s *Server) handleSlackOAuth(w http.ResponseWriter, r *http.Request) {
 			"client_id":     {s.config.SlackClientID},
 			"client_secret": {s.config.SlackClientSecret},
 			"code":          {code},
-			"redirect_uri":  {fmt.Sprintf("%s/oauth/slack", s.config.FrontendURL)},
+			"redirect_uri":  {fmt.Sprintf("%s/oauth/callback", s.config.FrontendURL)},
 		},
 	)
 	if err != nil {
@@ -124,6 +156,9 @@ func (s *Server) handleSlackOAuth(w http.ResponseWriter, r *http.Request) {
 			ID   string `json:"id"`
 			Name string `json:"name"`
 		} `json:"team"`
+		AuthedUser struct {
+			ID string `json:"id"`
+		} `json:"authed_user"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
@@ -159,8 +194,10 @@ func (s *Server) handleSlackOAuth(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Redirect to frontend with success
-	http.Redirect(w, r, fmt.Sprintf("%s/app-home?install=success", s.config.FrontendURL), http.StatusFound)
+	// Redirect to frontend with success and user identifiers
+	redirectURL := fmt.Sprintf("%s/app-home?install=success&slack_user_id=%s&team_id=%s",
+		s.config.FrontendURL, tokenResp.AuthedUser.ID, tokenResp.Team.ID)
+	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 
 func (s *Server) handleGetPreferences(w http.ResponseWriter, r *http.Request) {
@@ -212,6 +249,136 @@ func (s *Server) handleUpdatePreferences(w http.ResponseWriter, r *http.Request)
 	}
 
 	slog.Info("preferences updated", "user", userID)
+	respondJSON(w, http.StatusOK, prefs)
+}
+
+func (s *Server) handleGetUserBySlack(w http.ResponseWriter, r *http.Request) {
+	slackUserID := r.URL.Query().Get("slack_user_id")
+	teamID := r.URL.Query().Get("team_id")
+	if slackUserID == "" {
+		respondError(w, http.StatusBadRequest, "missing slack_user_id query parameter")
+		return
+	}
+
+	user, err := s.userRepo.GetBySlackID(r.Context(), slackUserID, teamID)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "user not found")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, user)
+}
+
+func (s *Server) handleUpdateUserBySlack(w http.ResponseWriter, r *http.Request) {
+	slackUserID := r.URL.Query().Get("slack_user_id")
+	teamID := r.URL.Query().Get("team_id")
+	if slackUserID == "" {
+		respondError(w, http.StatusBadRequest, "missing slack_user_id query parameter")
+		return
+	}
+
+	var update struct {
+		Neurotype string `json:"neurotype"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	user, err := s.userRepo.GetBySlackID(r.Context(), slackUserID, teamID)
+	if err != nil {
+		user = &domain.User{
+			SlackUserID: slackUserID,
+			SlackTeamID: teamID,
+			Neurotype:   update.Neurotype,
+		}
+		if err := s.userRepo.Create(r.Context(), user); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to create user")
+			return
+		}
+		respondJSON(w, http.StatusOK, user)
+		return
+	}
+
+	user.Neurotype = update.Neurotype
+	if err := s.userRepo.Update(r.Context(), user); err != nil {
+		slog.Error("failed to update user", "error", err)
+		respondError(w, http.StatusInternalServerError, "failed to update user")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, user)
+}
+
+func (s *Server) handleGetPreferencesBySlack(w http.ResponseWriter, r *http.Request) {
+	slackUserID := r.URL.Query().Get("slack_user_id")
+	teamID := r.URL.Query().Get("team_id")
+	if slackUserID == "" {
+		respondError(w, http.StatusBadRequest, "missing slack_user_id query parameter")
+		return
+	}
+
+	user, err := s.userRepo.GetBySlackID(r.Context(), slackUserID, teamID)
+	if err != nil {
+		// User not found; return defaults
+		respondJSON(w, http.StatusOK, domain.UserPreferences{
+			FocusModeEnabled:  true,
+			FocusThreshold:    50,
+			TranslatorEnabled: true,
+			DigestEnabled:     false,
+			DigestHour:        16,
+			DeepWorkAutoDetect: false,
+			QuietHoursStart:   "22:00",
+			QuietHoursEnd:     "08:00",
+		})
+		return
+	}
+
+	prefs, err := s.prefsRepo.Get(r.Context(), user.ID)
+	if err != nil {
+		respondJSON(w, http.StatusOK, domain.UserPreferences{UserID: user.ID})
+		return
+	}
+
+	respondJSON(w, http.StatusOK, prefs)
+}
+
+func (s *Server) handleUpdatePreferencesBySlack(w http.ResponseWriter, r *http.Request) {
+	slackUserID := r.URL.Query().Get("slack_user_id")
+	teamID := r.URL.Query().Get("team_id")
+	if slackUserID == "" {
+		respondError(w, http.StatusBadRequest, "missing slack_user_id query parameter")
+		return
+	}
+
+	user, err := s.userRepo.GetBySlackID(r.Context(), slackUserID, teamID)
+	if err != nil {
+		// Create user record if not exists
+		user = &domain.User{
+			SlackUserID: slackUserID,
+			SlackTeamID: teamID,
+		}
+		if err := s.userRepo.Create(r.Context(), user); err != nil {
+			slog.Error("failed to create user", "error", err, "slack_user_id", slackUserID)
+			respondError(w, http.StatusInternalServerError, "failed to create user")
+			return
+		}
+	}
+
+	var prefs domain.UserPreferences
+	if err := json.NewDecoder(r.Body).Decode(&prefs); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	prefs.UserID = user.ID
+	if err := s.prefsRepo.Upsert(r.Context(), &prefs); err != nil {
+		slog.Error("failed to update preferences", "error", err, "user", user.ID)
+		respondError(w, http.StatusInternalServerError, "failed to update preferences")
+		return
+	}
+
+	slog.Info("preferences updated via slack", "user", user.ID)
 	respondJSON(w, http.StatusOK, prefs)
 }
 

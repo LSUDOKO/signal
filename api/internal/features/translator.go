@@ -93,7 +93,12 @@ func (t *TranslatorService) HandleMessage(ctx context.Context, event *slackevent
 func (t *TranslatorService) HandleSlashCommand(ctx context.Context, cmd *slack.SlashCommand, user *domain.User) error {
 	message := cmd.Text
 	if strings.TrimSpace(message) == "" {
-		// Send help
+		// Send help via DM
+		dmChannel, err := t.slack.OpenDMChannel(cmd.UserID)
+		if err != nil {
+			slog.Error("failed to open dm for translate help", "error", err)
+			return err
+		}
 		blocks := []slack.Block{
 			slack.NewSectionBlock(
 				slack.NewTextBlockObject("mrkdwn",
@@ -103,20 +108,33 @@ func (t *TranslatorService) HandleSlashCommand(ctx context.Context, cmd *slack.S
 				nil, nil,
 			),
 		}
-		return t.slack.PostMessage(cmd.ChannelID, blocks, "Translation Help")
+		return t.slack.PostMessage(dmChannel, blocks, "Translation Help")
 	}
 
+	// Analyze tone (this might take 1-2 seconds with AI)
 	analysis, err := t.ai.AnalyzeTone(ctx, message)
 	if err != nil {
-		return fmt.Errorf("analyze tone: %w", err)
+		slog.Error("ai tone analysis failed for slash command", "error", err)
+		// Send error message to user's DM
+		dmChannel, dmErr := t.slack.OpenDMChannel(cmd.UserID)
+		if dmErr != nil {
+			return fmt.Errorf("analyze tone: %w, open dm: %w", err, dmErr)
+		}
+		return t.slack.PostMessage(dmChannel, []slack.Block{
+			slack.NewSectionBlock(
+				slack.NewTextBlockObject("mrkdwn", "❌ Sorry, I couldn't analyze that message right now. Please try again in a moment.", false, false),
+				nil, nil,
+			),
+		}, "Translation Error")
 	}
 
-	channelID, err := t.slack.OpenDMChannel(cmd.UserID)
+	// Send translation to user's DM
+	dmChannel, err := t.slack.OpenDMChannel(cmd.UserID)
 	if err != nil {
-		return err
+		return fmt.Errorf("open dm: %w", err)
 	}
 
-	return t.postTranslationBlocks(channelID, message, analysis)
+	return t.postTranslationBlocks(dmChannel, message, analysis)
 }
 
 // HandleBlockAction handles translator button clicks (e.g., "Got it").

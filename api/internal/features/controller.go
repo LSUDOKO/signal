@@ -68,10 +68,16 @@ func (c *Controller) HandleMessage(ctx context.Context, event *slackevents.Messa
 		return nil
 	}
 
+	// If it's a DM to Signal, show help instead of processing features
+	if event.ChannelType == "im" {
+		return c.handleDirectMessage(ctx, event, user)
+	}
+
 	// Ensure user exists
 	user, err := c.ensureUser(ctx, user)
 	if err != nil {
-		return err
+		slog.Error("failed to ensure user exists", "error", err, "slack_user_id", user.SlackUserID)
+		// Continue anyway with basic functionality
 	}
 
 	// Get user preferences
@@ -102,19 +108,41 @@ func (c *Controller) HandleMessage(ctx context.Context, event *slackevents.Messa
 	return nil
 }
 
-// HandleAppMention handles when Signal is @mentioned.
-func (c *Controller) HandleAppMention(ctx context.Context, event *slackevents.AppMentionEvent, user *domain.User, teamID string) error {
-	user, err := c.ensureUser(ctx, user)
-	if err != nil {
-		return err
-	}
-
+// handleDirectMessage handles DMs sent to Signal
+func (c *Controller) handleDirectMessage(ctx context.Context, event *slackevents.MessageEvent, user *domain.User) error {
+	// For now, just respond with help
 	dmChannel, err := c.slack.OpenDMChannel(user.SlackUserID)
 	if err != nil {
 		return fmt.Errorf("open dm: %w", err)
 	}
 
+	// Send help message
 	return c.slack.PostMessage(dmChannel, buildHelpBlocks(), "Signal Help")
+}
+
+// HandleAppMention handles when Signal is @mentioned.
+func (c *Controller) HandleAppMention(ctx context.Context, event *slackevents.AppMentionEvent, user *domain.User, teamID string) error {
+	user, err := c.ensureUser(ctx, user)
+	if err != nil {
+		slog.Warn("could not ensure user for app mention", "error", err)
+		// Continue anyway - can still respond
+	}
+
+	// Respond in the channel where we were mentioned (not DM)
+	blocks := []slack.Block{
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject("mrkdwn",
+				fmt.Sprintf("👋 Hi <@%s>! I'm Signal, your neurodivergent-friendly Slack assistant.\n\nUse `/signal` to see all my commands, or DM me anytime for help!", user.SlackUserID),
+				false, false,
+			),
+			nil, nil,
+		),
+		slack.NewContextBlock("mention_context",
+			slack.NewTextBlockObject("mrkdwn", "_💡 Tip: Try `/translate [message]` to decode ambiguous workplace language_", false, false),
+		),
+	}
+
+	return c.slack.PostMessage(event.Channel, blocks, "Signal Help")
 }
 
 // HandleBlockAction routes block action events (button clicks) to features.
@@ -185,15 +213,23 @@ func (c *Controller) HandleAppHomeOpened(ctx context.Context, event *slackevents
 }
 
 func (c *Controller) ensureUser(ctx context.Context, user *domain.User) (*domain.User, error) {
+	// If no SlackUserID, return the passed user as-is (shouldn't happen but defensive)
+	if user.SlackUserID == "" {
+		return user, fmt.Errorf("user has no slack_user_id")
+	}
+
 	existing, err := c.userRepo.GetBySlackID(ctx, user.SlackUserID, user.SlackTeamID)
 	if err != nil {
-		// Create new user
+		// User doesn't exist, create new user
 		newUser := &domain.User{
 			SlackUserID: user.SlackUserID,
 			SlackTeamID: user.SlackTeamID,
 		}
 		if err := c.userRepo.Create(ctx, newUser); err != nil {
-			return nil, err
+			// If we can't create the user, log but return the basic user object
+			// so features can still work (just without persistence)
+			slog.Error("failed to create user in database", "error", err, "slack_user_id", user.SlackUserID)
+			return newUser, err
 		}
 		return newUser, nil
 	}
@@ -243,13 +279,7 @@ func buildHelpBlocks() []slack.Block {
 		),
 		slack.NewSectionBlock(
 			slack.NewTextBlockObject("mrkdwn",
-				"*/digest*\nSend an instant digest\n\n*@Signal help*\nShow this menu\n\n*Need help?* Visit <https://github.com/LSUDOKOS/signal|GitHub> or configure preferences from your Slack App Home.",
-			nil,
-		),
-		slack.NewDividerBlock(),
-		slack.NewSectionBlock(
-			slack.NewTextBlockObject("mrkdwn",
-				"*Need help?* Visit <https://github.com/LSUDOKOS/signal|GitHub> or open your Slack App Home to configure preferences.",
+				"*/digest*\nSend an instant digest\n\n*@Signal help*\nShow this menu",
 				false, false,
 			),
 			nil, nil,

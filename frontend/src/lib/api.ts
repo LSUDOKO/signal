@@ -9,7 +9,7 @@ const api = axios.create({
 });
 
 export interface UserPreferences {
-  user_id: string;
+  user_id?: string;
   focus_mode_enabled: boolean;
   focus_threshold: number;
   translator_enabled: boolean;
@@ -26,32 +26,45 @@ export interface User {
   slack_team_id: string;
   email: string;
   display_name: string;
-  neurotype: Neurotype;
+  neurotype: string;
   created_at: string;
   updated_at: string;
 }
 
-export type Neurotype =
-  | "adhd"
-  | "autism"
-  | "anxiety"
-  | "unspecified"
-  | "ally";
-
-export async function getPreferences(userId: string) {
+export async function getPreferences(slackUserID: string, teamID = "") {
   const { data } = await api.get<UserPreferences>(
-    `/api/v1/users/${userId}/preferences`
+    "/api/v1/preferences/by-slack",
+    { params: { slack_user_id: slackUserID, team_id: teamID } }
   );
   return data;
 }
 
 export async function updatePreferences(
-  userId: string,
-  prefs: Partial<UserPreferences>
+  slackUserID: string,
+  teamID = "",
+  prefs: Record<string, unknown>
 ) {
   const { data } = await api.put<UserPreferences>(
-    `/api/v1/users/${userId}/preferences`,
-    prefs
+    "/api/v1/preferences/by-slack",
+    prefs,
+    { params: { slack_user_id: slackUserID, team_id: teamID } }
+  );
+  return data;
+}
+
+export async function updateUser(slackUserID: string, teamID = "", data: Record<string, unknown>) {
+  const { data: user } = await api.put<User>(
+    "/api/v1/user/by-slack",
+    data,
+    { params: { slack_user_id: slackUserID, team_id: teamID } }
+  );
+  return user;
+}
+
+export async function getUser(slackUserID: string, teamID = "") {
+  const { data } = await api.get<User>(
+    "/api/v1/user/by-slack",
+    { params: { slack_user_id: slackUserID, team_id: teamID } }
   );
   return data;
 }

@@ -1,8 +1,10 @@
 "use client";
 
-import { ArrowRight, Brain, Shield, Search, Moon, Bell, Menu, X, MessageSquare, GitFork, Star } from "lucide-react";
+	import { ArrowRight, Brain, Shield, Search, Moon, Bell, Menu, X, MessageSquare, GitFork, Star } from "lucide-react";
 import { useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
+
+const SLACK_INSTALL_URL = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/oauth/start`;
 
 const features = [
   {
@@ -113,7 +115,7 @@ export default function Home() {
           <div className="flex items-center gap-3">
             <ThemeToggle />
             <a
-              href="https://slack.com/oauth/v2/authorize"
+              href={SLACK_INSTALL_URL}
               className="hidden sm:inline-flex items-center gap-2 rounded-lg bg-signal-blue px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-signal-blue-dark hover:shadow-md"
             >
               <MessageSquare className="h-4 w-4" />
@@ -137,7 +139,7 @@ export default function Home() {
               <a href="#stories" className="text-sm font-medium py-2" onClick={() => setMobileMenuOpen(false)}>Stories</a>
               <a href="/docs" className="text-sm font-medium py-2" onClick={() => setMobileMenuOpen(false)}>Docs</a>
               <a
-                href="https://slack.com/oauth/v2/authorize"
+                href={SLACK_INSTALL_URL}
                 className="inline-flex items-center justify-center gap-2 rounded-lg bg-signal-blue px-5 py-2.5 text-sm font-semibold text-white mt-2"
               >
                 <MessageSquare className="h-4 w-4" />
@@ -178,7 +180,7 @@ export default function Home() {
 
             <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
               <a
-                href="https://slack.com/oauth/v2/authorize"
+                href={SLACK_INSTALL_URL}
                 className="btn-primary text-base px-8 py-3.5 w-full sm:w-auto"
               >
                 <MessageSquare className="h-5 w-5" />
@@ -309,7 +311,7 @@ export default function Home() {
                 Join the first neurodivergent accessibility tool for Slack. Free during hackathon.
               </p>
               <a
-                href="https://slack.com/oauth/v2/authorize"
+                href={SLACK_INSTALL_URL}
                 className="btn-primary text-base px-8 py-3.5"
               >
                 <MessageSquare className="h-5 w-5" />

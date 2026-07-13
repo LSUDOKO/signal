@@ -283,6 +283,18 @@ func (w *workerSlackAPI) GetChannelHistory(channelID string, limit int) ([]slack
 	return resp.Messages, nil
 }
 
+func (w *workerSlackAPI) GetThreadMessages(channelID, threadTS string) ([]slack.Message, error) {
+	replies, _, _, err := w.api.GetConversationReplies(&slack.GetConversationRepliesParameters{
+		ChannelID: channelID,
+		Timestamp: threadTS,
+		Limit:     50,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return replies, nil
+}
+
 func (w *workerSlackAPI) SearchMessages(query string, params slack.SearchParameters) (*slack.SearchMessages, error) {
 	result, err := w.api.SearchMessages(query, params)
 	if err != nil {

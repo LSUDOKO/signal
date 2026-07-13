@@ -29,6 +29,7 @@ type FeatureController interface {
 	HandleBlockAction(ctx context.Context, action *slack.InteractionCallback, user *domain.User, teamID string) error
 	HandleCommand(ctx context.Context, cmd *slack.SlashCommand, user *domain.User, responseURL string) error
 	HandleAppHomeOpened(ctx context.Context, event *slackevents.AppHomeOpenedEvent, user *domain.User, teamID string) error
+	HandleReaction(ctx context.Context, event *slackevents.ReactionAddedEvent, user *domain.User, teamID string) error
 }
 
 // NewEventHandler creates a new Slack event handler.
@@ -151,6 +152,8 @@ func (h *EventHandler) handleCallbackEvent(ctx context.Context, innerEvent slack
 		h.handleAppMentionEvent(ctx, event)
 	case *slackevents.AppHomeOpenedEvent:
 		h.handleAppHomeOpenedEvent(ctx, event)
+	case *slackevents.ReactionAddedEvent:
+		h.handleReactionAddedEvent(ctx, event)
 	case *slackevents.MemberJoinedChannelEvent:
 		slog.Info("member joined channel", "channel", event.Channel, "user", event.User)
 	default:
@@ -208,6 +211,18 @@ func (h *EventHandler) handleAppHomeOpenedEvent(ctx context.Context, event *slac
 
 	if err := h.featureCtrl.HandleAppHomeOpened(ctx, event, user, ""); err != nil {
 		slog.Error("error handling app home opened", "error", err)
+	}
+}
+
+func (h *EventHandler) handleReactionAddedEvent(ctx context.Context, event *slackevents.ReactionAddedEvent) {
+	if h.featureCtrl == nil {
+		return
+	}
+	user := &domain.User{
+		SlackUserID: event.User,
+	}
+	if err := h.featureCtrl.HandleReaction(ctx, event, user, ""); err != nil {
+		slog.Error("error handling reaction", "error", err, "reaction", event.Reaction)
 	}
 }
 
@@ -369,6 +384,21 @@ func (h *EventHandler) GetChannelHistory(channelID string, limit int) ([]slack.M
 		return nil, fmt.Errorf("get history: %w", err)
 	}
 	return history.Messages, nil
+}
+
+// GetThreadMessages fetches all messages in a thread.
+func (h *EventHandler) GetThreadMessages(channelID, threadTS string) ([]slack.Message, error) {
+	replies, _, _, err := h.api.GetConversationReplies(
+		&slack.GetConversationRepliesParameters{
+			ChannelID: channelID,
+			Timestamp: threadTS,
+			Limit:     50,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get thread replies: %w", err)
+	}
+	return replies, nil
 }
 
 // SearchMessages performs a RTS search via Slack API.

@@ -190,3 +190,8 @@ func (d *DeepWorkService) IsInDeepWork(ctx context.Context, slackUserID string) 
 	}
 	return duration > 0
 }
+
+// GetDeepWorkState returns the remaining deep work duration (0 if not active).
+func (d *DeepWorkService) GetDeepWorkState(ctx context.Context, slackUserID string) (time.Duration, error) {
+	return d.cache.GetDeepWork(ctx, slackUserID)
+}

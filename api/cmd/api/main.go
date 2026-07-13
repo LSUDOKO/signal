@@ -114,15 +114,21 @@ func main() {
 
 	// Create feature services with the handler as SlackAPI
 	slackAPI := slackHandler
+	memory := features.NewMemoryService(cache)
 	focusMode := features.NewFocusModeService(slackAPI, aiClient, cache, channelRepo, focusSummaryRepo)
 	translator := features.NewTranslatorService(slackAPI, aiClient)
 	catchup := features.NewCatchUpService(slackAPI, aiClient, rtsSearcher)
 	digest := features.NewDigestService(slackAPI, aiClient, digestRepo, userRepo, prefsRepo, cache)
 	deepWork := features.NewDeepWorkService(slackAPI, mcpHostClient, cache)
+	modeService := features.NewModeService(slackAPI, userRepo, prefsRepo)
+	decisions := features.NewDecisionService(slackAPI, aiClient, rtsSearcher)
+	planner := features.NewPlannerService(slackAPI, aiClient, memory)
+	threadSummary := features.NewThreadSummaryService(slackAPI, aiClient, memory)
 
 	featureCtrl := features.NewController(
 		focusMode, translator, catchup, digest, deepWork,
-		userRepo, prefsRepo, rtsSearcher, slackAPI,
+		modeService, decisions, planner, threadSummary, memory,
+		userRepo, prefsRepo, rtsSearcher, slackAPI, aiClient,
 	)
 
 	// Set the feature controller on the slack handler

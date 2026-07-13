@@ -27,6 +27,7 @@ type AppConfig struct {
 
 type SlackConfig struct {
 	BotToken      string `env:"BOT_TOKEN" env-required:"true"`
+	UserToken     string `env:"USER_TOKEN"` // For RTS search (optional)
 	AppToken      string `env:"APP_TOKEN" env-required:"true"`
 	SigningSecret string `env:"SIGNING_SECRET" env-required:"true"`
 	ClientID      string `env:"CLIENT_ID" env-required:"true"`

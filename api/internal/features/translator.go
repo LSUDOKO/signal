@@ -211,13 +211,16 @@ func (t *TranslatorService) postTranslationBlocks(channelID, originalText string
 		note = "This message appears straightforward."
 	}
 
+	// Escape special characters in original text for Slack markdown
+	escapedText := strings.ReplaceAll(originalText, ">", "\\>")
+	
 	blocks := []slack.Block{
 		slack.NewHeaderBlock(
 			slack.NewTextBlockObject("plain_text", "🔍 Signal Translation", true, false),
 		),
 		slack.NewSectionBlock(
 			slack.NewTextBlockObject("mrkdwn",
-				fmt.Sprintf("*Original message:*\n> %s", originalText),
+				fmt.Sprintf("*Original message:*\n> %s", escapedText),
 				false, false,
 			),
 			nil, nil,
@@ -239,7 +242,9 @@ func (t *TranslatorService) postTranslationBlocks(channelID, originalText string
 			nil, nil,
 		),
 		slack.NewActionBlock("translator_actions",
-			slack.NewButtonBlockElement("translator_ack", "ack", slack.NewTextBlockObject("plain_text", "Got it ✓", false, true)).WithStyle("primary"),
+			slack.NewButtonBlockElement("translator_ack", "ack", 
+				slack.NewTextBlockObject("plain_text", "Got it ✓", true, false),
+			).WithStyle(slack.StylePrimary),
 		),
 	}
 

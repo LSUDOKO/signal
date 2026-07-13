@@ -32,6 +32,12 @@ func NewClient(botToken, appToken string, featureCtrl FeatureController) (*Event
 	return handler, nil
 }
 
+// NewAPIClientWithToken creates a standalone Slack API client with a specific token.
+// Used for RTS search which requires a user token.
+func NewAPIClientWithToken(token string) *slack.Client {
+	return slack.New(token)
+}
+
 // HandlerLogger adapts slog to socketmode's logger interface.
 type HandlerLogger struct{}
 

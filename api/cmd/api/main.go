@@ -90,8 +90,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Initialize RTS searcher with real Slack API client
-	rtsSearcher := rts.NewSearcher(slackHandler.GetAPI())
+	// Initialize RTS searcher with user token if available (RTS requires user token, not bot token)
+	var rtsSearcher *rts.Searcher
+	if cfg.Slack.UserToken != "" {
+		userSlackClient := signalSlack.NewAPIClientWithToken(cfg.Slack.UserToken)
+		rtsSearcher = rts.NewSearcher(userSlackClient)
+		slog.Info("rts searcher initialized with user token")
+	} else {
+		// Fallback to bot token (will fail for RTS but allows app to run)
+		rtsSearcher = rts.NewSearcher(slackHandler.GetAPI())
+		slog.Warn("rts searcher using bot token (RTS will not work without user token)")
+	}
 
 	// Initialize MCP host client
 	var mcpHostClient *mcpclient.HostClient

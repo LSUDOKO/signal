@@ -52,89 +52,63 @@ var ambiguousPatterns = []*regexp.Regexp{
 // userMentionPattern extracts @user mentions from a message.
 var userMentionPattern = regexp.MustCompile(`<@([A-Z0-9]+)>`)
 
-// HandleMessage checks for ambiguous language and triggers translation.
+// HandleMessage checks for ambiguous language and triggers auto-translation.
 func (t *TranslatorService) HandleMessage(ctx context.Context, event *slackevents.MessageEvent, user *domain.User) error {
-	// Check if message contains ambiguous language
 	if !t.containsAmbiguousPhrase(event.Text) {
-		// Check if it's a reply in a thread to a previous message
 		if event.ThreadTimeStamp == "" {
 			return nil
 		}
 	}
 
-	// Analyze tone
 	analysis, err := t.ai.AnalyzeTone(ctx, event.Text)
 	if err != nil {
 		slog.Error("ai tone analysis failed", "error", err)
-		return nil // Don't fail the message flow
+		return nil
 	}
 
-	// Extract mentioned users
 	mentionedUsers := t.extractMentionedUsers(event.Text)
-
-	// Send translation DM: to mentioned users if any, otherwise to the current user
 	if len(mentionedUsers) > 0 {
-		for _, mentionedUser := range mentionedUsers {
-			if err := t.sendTranslationDM(ctx, mentionedUser, event, analysis); err != nil {
-				slog.Error("failed to send translation dm", "error", err, "user", mentionedUser)
+		for _, uid := range mentionedUsers {
+			if err := t.sendTranslationDM(ctx, uid, event, analysis); err != nil {
+				slog.Error("failed to send translation dm", "error", err, "user", uid)
 			}
 		}
 	} else {
-		// No @-mentions but ambiguous language detected; send to the current user
 		if err := t.sendTranslationDM(ctx, user.SlackUserID, event, analysis); err != nil {
 			slog.Error("failed to send translation dm to user", "error", err)
 		}
 	}
-
 	return nil
 }
 
-// HandleSlashCommand handles the /translate command.
-func (t *TranslatorService) HandleSlashCommand(ctx context.Context, cmd *slack.SlashCommand, user *domain.User) error {
-	message := cmd.Text
-	if strings.TrimSpace(message) == "" {
-		// Send help via DM
-		dmChannel, err := t.slack.OpenDMChannel(cmd.UserID)
-		if err != nil {
-			slog.Error("failed to open dm for translate help", "error", err)
-			return err
-		}
-		blocks := []slack.Block{
+// HandleSlashCommand handles the /translate command via response_url (no token needed).
+func (t *TranslatorService) HandleSlashCommand(ctx context.Context, cmd *slack.SlashCommand, user *domain.User, responseURL string) error {
+	message := strings.TrimSpace(cmd.Text)
+	if message == "" {
+		return t.slack.PostWebhook(responseURL, []slack.Block{
 			slack.NewSectionBlock(
 				slack.NewTextBlockObject("mrkdwn",
-					"🔍 *Signal Translator*\nUsage: `/translate [message]`\n\nPaste a message you'd like translated into plain language.",
+					"🔍 *Signal Translator*\n\nUsage: `/translate [message]`\n\nPaste any ambiguous workplace message and I'll decode the tone, intent, and what you should do.\n\n*Example:* `/translate Per my last email, we need this by EOD.`",
 					false, false,
 				),
 				nil, nil,
 			),
-		}
-		return t.slack.PostMessage(dmChannel, blocks, "Translation Help")
+		}, "Translation Help")
 	}
 
-	// Analyze tone (this might take 1-2 seconds with AI)
+	// NOTE: response_url is single-use — call it ONCE with the final result
 	analysis, err := t.ai.AnalyzeTone(ctx, message)
 	if err != nil {
 		slog.Error("ai tone analysis failed for slash command", "error", err)
-		// Send error message to user's DM
-		dmChannel, dmErr := t.slack.OpenDMChannel(cmd.UserID)
-		if dmErr != nil {
-			return fmt.Errorf("analyze tone: %w, open dm: %w", err, dmErr)
-		}
-		return t.slack.PostMessage(dmChannel, []slack.Block{
+		return t.slack.PostWebhook(responseURL, []slack.Block{
 			slack.NewSectionBlock(
-				slack.NewTextBlockObject("mrkdwn", "❌ Sorry, I couldn't analyze that message right now. Please try again in a moment.", false, false),
+				slack.NewTextBlockObject("mrkdwn", "❌ Couldn't analyze that right now. Please try again in a moment.", false, false),
 				nil, nil,
 			),
 		}, "Translation Error")
 	}
 
-	// Send translation to user's DM
-	dmChannel, err := t.slack.OpenDMChannel(cmd.UserID)
-	if err != nil {
-		return fmt.Errorf("open dm: %w", err)
-	}
-
-	return t.postTranslationBlocks(dmChannel, message, analysis)
+	return t.slack.PostWebhook(responseURL, t.buildTranslationBlocks(message, analysis), "Signal Translation")
 }
 
 // HandleBlockAction handles translator button clicks (e.g., "Got it").
@@ -142,22 +116,14 @@ func (t *TranslatorService) HandleBlockAction(ctx context.Context, action *slack
 	if len(action.ActionCallback.BlockActions) == 0 {
 		return nil
 	}
-	actionID := action.ActionCallback.BlockActions[0].ActionID
-	if actionID == "translator_ack" {
-		// Acknowledge the translation was helpful
-		channelID, err := t.slack.OpenDMChannel(user.SlackUserID)
-		if err != nil {
-			return err
-		}
-		return t.slack.PostMessage(channelID,
-			[]slack.Block{
-				slack.NewSectionBlock(
-					slack.NewTextBlockObject("mrkdwn", "👍 Glad I could help! Let me know if you need anything else translated.", false, false),
-					nil, nil,
-				),
-			},
-			"Translation Acknowledged",
-		)
+	if action.ActionCallback.BlockActions[0].ActionID == "translator_ack" {
+		// Reply in the same channel/DM where the button was clicked
+		return t.slack.PostMessage(action.Channel.ID, []slack.Block{
+			slack.NewSectionBlock(
+				slack.NewTextBlockObject("mrkdwn", "👍 Glad I could help! Feel free to translate another message anytime.", false, false),
+				nil, nil,
+			),
+		}, "Translation Acknowledged")
 	}
 	return nil
 }
@@ -184,16 +150,15 @@ func (t *TranslatorService) extractMentionedUsers(text string) []string {
 	return users
 }
 
-func (t *TranslatorService) sendTranslationDM(ctx context.Context, mentionedUser string, event *slackevents.MessageEvent, analysis *domain.ToneAnalysis) error {
-	channelID, err := t.slack.OpenDMChannel(mentionedUser)
+func (t *TranslatorService) sendTranslationDM(ctx context.Context, userID string, event *slackevents.MessageEvent, analysis *domain.ToneAnalysis) error {
+	channelID, err := t.slack.OpenDMChannel(userID)
 	if err != nil {
 		return fmt.Errorf("open dm: %w", err)
 	}
-
-	return t.postTranslationBlocks(channelID, event.Text, analysis)
+	return t.slack.PostMessage(channelID, t.buildTranslationBlocks(event.Text, analysis), "Signal Translation")
 }
 
-func (t *TranslatorService) postTranslationBlocks(channelID, originalText string, analysis *domain.ToneAnalysis) error {
+func (t *TranslatorService) buildTranslationBlocks(originalText string, analysis *domain.ToneAnalysis) []slack.Block {
 	tone := analysis.Tone
 	if tone == "" {
 		tone = "Neutral"
@@ -211,13 +176,15 @@ func (t *TranslatorService) postTranslationBlocks(channelID, originalText string
 		note = "This message appears straightforward."
 	}
 
-	blocks := []slack.Block{
+	escapedText := strings.ReplaceAll(originalText, ">", "\\>")
+
+	return []slack.Block{
 		slack.NewHeaderBlock(
 			slack.NewTextBlockObject("plain_text", "🔍 Signal Translation", true, false),
 		),
 		slack.NewSectionBlock(
 			slack.NewTextBlockObject("mrkdwn",
-				fmt.Sprintf("*Original message:*\n> %s", originalText),
+				fmt.Sprintf("*Original message:*\n> %s", escapedText),
 				false, false,
 			),
 			nil, nil,
@@ -239,9 +206,9 @@ func (t *TranslatorService) postTranslationBlocks(channelID, originalText string
 			nil, nil,
 		),
 		slack.NewActionBlock("translator_actions",
-			slack.NewButtonBlockElement("translator_ack", "ack", slack.NewTextBlockObject("plain_text", "Got it ✓", false, true)).WithStyle("primary"),
+			slack.NewButtonBlockElement("translator_ack", "ack",
+				slack.NewTextBlockObject("plain_text", "Got it ✓", true, false),
+			).WithStyle(slack.StylePrimary),
 		),
 	}
-
-	return t.slack.PostMessage(channelID, blocks, "Signal Translation")
 }

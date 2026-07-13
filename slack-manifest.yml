@@ -24,28 +24,50 @@ features:
 
   slash_commands:
     - command: /signal
-      description: Open Signal preferences and help
-      usage_hint: "[command]"
+      description: Open Signal help menu and preferences
+      usage_hint: ""
 
     - command: /translate
-      description: Translate an ambiguous workplace message into plain language
+      description: Decode an ambiguous workplace message into plain language
       usage_hint: "[message to translate]"
 
     - command: /catchup
-      description: Get AI summary of what you missed about a topic
+      description: AI summary of what you missed about a topic
       usage_hint: "[what did I miss about...]"
 
     - command: /focus
-      description: Start a deep work session (e.g., /focus 2h)
-      usage_hint: "[duration]"
+      description: Start a deep work session (blocks notifications, sets status)
+      usage_hint: "[duration: 2h, 90min, 60]"
 
     - command: /digest
-      description: Force-send your Quiet Hours Digest now
+      description: Get an instant digest of your recent mentions
+
+    - command: /mode
+      description: Set your neurotype mode to personalize Signal (ADHD, Autism, Anxiety)
+      usage_hint: "[adhd | autism | anxiety | ally | unspecified]"
+
+    - command: /decisions
+      description: Find all decisions made in a channel in the last N days
+      usage_hint: "[#channel] [days: 7|14|30]"
+
+    - command: /plan
+      description: AI action planner — turn any goal into concrete tasks
+      usage_hint: "[describe your goal or task list]"
+
+    - command: /github
+      description: Search GitHub PRs, issues, and repos in your org
+      usage_hint: "[open PRs | issues | repo name | any query]"
+
+    - command: /docs
+      description: Search your Notion workspace for documentation
+      usage_hint: "[search query]"
 
 oauth_config:
   scopes:
     bot:
+      - app_mentions:read
       - channels:history
+      - channels:join
       - channels:read
       - chat:write
       - commands
@@ -56,15 +78,19 @@ oauth_config:
       - im:write
       - links:read
       - links:write
-      - mpim:read
       - mpim:history
+      - mpim:read
       - reactions:read
       - reactions:write
+      - search:read
       - team:read
       - users:read
       - users:read.email
-      - app_mentions:read
-      - channels:join
+      - users.profile:write
+    user:
+      - search:read
+      - users.profile:write
+      - users.profile:read
 
 settings:
   event_subscriptions:

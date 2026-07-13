@@ -30,20 +30,18 @@ func NewDeepWorkService(slack SlackAPI, mcpClient *mcpclient.HostClient, cache s
 	}
 }
 
-// HandleSlashCommand processes the /focus command.
-func (d *DeepWorkService) HandleSlashCommand(ctx context.Context, cmd *slack.SlashCommand, user *domain.User) error {
+// HandleSlashCommand processes the /focus command via response_url.
+func (d *DeepWorkService) HandleSlashCommand(ctx context.Context, cmd *slack.SlashCommand, user *domain.User, responseURL string) error {
 	text := strings.TrimSpace(cmd.Text)
 
-	// Parse duration from command
 	duration := 120 // default 2 hours
 	if text != "" {
-		parsed, err := parseDuration(text)
-		if err == nil {
+		if parsed, err := parseDuration(text); err == nil {
 			duration = parsed
 		}
 	}
 
-	return d.startDeepWork(ctx, cmd.UserID, cmd.ChannelID, duration)
+	return d.startDeepWork(ctx, cmd.UserID, cmd.ChannelID, duration, responseURL)
 }
 
 // HandleBlockAction handles Deep Work button clicks.
@@ -55,7 +53,6 @@ func (d *DeepWorkService) HandleBlockAction(ctx context.Context, action *slack.I
 
 	switch actionID {
 	case "deepwork_start":
-		// Parse duration from value or default to 2 hours
 		duration := 120
 		if len(action.ActionCallback.BlockActions) > 0 {
 			if val := action.ActionCallback.BlockActions[0].Value; val != "" {
@@ -64,7 +61,7 @@ func (d *DeepWorkService) HandleBlockAction(ctx context.Context, action *slack.I
 				}
 			}
 		}
-		return d.startDeepWork(ctx, user.SlackUserID, action.Channel.ID, duration)
+		return d.startDeepWork(ctx, user.SlackUserID, action.Channel.ID, duration, "")
 
 	case "deepwork_stop":
 		return d.stopDeepWork(ctx, user.SlackUserID, action.Channel.ID)
@@ -77,32 +74,23 @@ func (d *DeepWorkService) HandleBlockAction(ctx context.Context, action *slack.I
 }
 
 // startDeepWork initiates a deep work session.
-func (d *DeepWorkService) startDeepWork(ctx context.Context, slackUserID, channelID string, durationMinutes int) error {
+func (d *DeepWorkService) startDeepWork(ctx context.Context, slackUserID, channelID string, durationMinutes int, responseURL string) error {
 	duration := time.Duration(durationMinutes) * time.Minute
 	endTime := time.Now().Add(duration)
 
-	// Store deep work state in Redis
 	if err := d.cache.SetDeepWork(ctx, slackUserID, duration); err != nil {
 		slog.Error("failed to set deep work state", "error", err)
 	}
 
-	// Call MCP to block focus time on calendar
 	if d.mcpClient != nil {
 		if _, err := d.mcpClient.BlockFocusTime(ctx, slackUserID, durationMinutes, "Deep Work"); err != nil {
 			slog.Warn("mcp block focus time failed", "error", err)
 		}
 	}
 
-	// Set Slack status
 	statusText := fmt.Sprintf("In Deep Work — back at %s", endTime.Format("3:04 PM"))
 	if err := d.slack.SetUserStatus(slackUserID, statusText, ":brain:", durationMinutes); err != nil {
 		slog.Warn("failed to set slack status", "error", err, "user", slackUserID)
-	}
-
-	// Send confirmation
-	dmChannel, err := d.slack.OpenDMChannel(slackUserID)
-	if err != nil {
-		return fmt.Errorf("open dm: %w", err)
 	}
 
 	blocks := []slack.Block{
@@ -111,62 +99,63 @@ func (d *DeepWorkService) startDeepWork(ctx context.Context, slackUserID, channe
 		),
 		slack.NewSectionBlock(
 			slack.NewTextBlockObject("mrkdwn",
-				fmt.Sprintf("*Duration:* %d minutes\n*Ends at:* %s\n*Status:* 🧘 %s\n\nNon-urgent notifications are paused. I'll auto-respond to DMs.", durationMinutes, endTime.Format("3:04 PM"), statusText),
+				fmt.Sprintf("*Duration:* %d minutes\n*Ends at:* %s\n\nYour Slack status has been updated. Non-urgent notifications are paused.", durationMinutes, endTime.Format("3:04 PM")),
 				false, false,
 			),
 			nil, nil,
 		),
 		slack.NewActionBlock("deepwork_actions",
-			slack.NewButtonBlockElement("deepwork_extend", "60", slack.NewTextBlockObject("plain_text", "Extend 1h", false, true)).WithStyle("primary"),
-			slack.NewButtonBlockElement("deepwork_stop", "stop", slack.NewTextBlockObject("plain_text", "End Early", false, true)).WithStyle("danger"),
+			slack.NewButtonBlockElement("deepwork_extend", "60",
+				slack.NewTextBlockObject("plain_text", "Extend 1h", false, false),
+			).WithStyle(slack.StylePrimary),
+			slack.NewButtonBlockElement("deepwork_stop", "stop",
+				slack.NewTextBlockObject("plain_text", "End Early", false, false),
+			).WithStyle(slack.StyleDanger),
 		),
 	}
 
-	return d.slack.PostMessage(dmChannel, blocks, "Deep Work Activated")
+	// Prefer response_url (slash command context), fall back to posting in the channel
+	if responseURL != "" {
+		err := d.slack.PostWebhook(responseURL, blocks, "Deep Work Activated")
+		if err == nil {
+			return nil
+		}
+		slog.Warn("PostWebhook failed for focus, falling back to channel post", "error", err)
+	}
+	// Fall back: post directly to the channel where command was typed
+	if channelID != "" {
+		return d.slack.PostMessage(channelID, blocks, "Deep Work Activated")
+	}
+	return nil // Best-effort — don't fail the whole command
 }
 
 // stopDeepWork ends a deep work session.
 func (d *DeepWorkService) stopDeepWork(ctx context.Context, slackUserID, channelID string) error {
-	// Clear deep work state
 	if err := d.cache.ClearDeepWork(ctx, slackUserID); err != nil {
 		slog.Error("failed to clear deep work", "error", err)
 	}
-
-	// Clear Slack status
 	if err := d.slack.SetUserStatus(slackUserID, "", "", 0); err != nil {
 		slog.Warn("failed to clear slack status", "error", err)
 	}
-
-	// Send confirmation
-	dmChannel, err := d.slack.OpenDMChannel(slackUserID)
-	if err != nil {
-		return err
+	if channelID == "" {
+		return nil
 	}
-
-	return d.slack.PostMessage(dmChannel,
-		[]slack.Block{
-			slack.NewSectionBlock(
-				slack.NewTextBlockObject("mrkdwn",
-					"✅ Deep Work mode ended. Notifications are back to normal.",
-					false, false,
-				),
-				nil, nil,
-			),
-		},
-		"Deep Work Ended",
-	)
+	return d.slack.PostMessage(channelID, []slack.Block{
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject("mrkdwn", "✅ Deep Work mode ended. Notifications are back to normal.", false, false),
+			nil, nil,
+		),
+	}, "Deep Work Ended")
 }
 
 // extendDeepWork extends the current deep work session.
 func (d *DeepWorkService) extendDeepWork(ctx context.Context, slackUserID, channelID string) error {
-	// Get current duration and add 60 minutes
 	currentDuration, err := d.cache.GetDeepWork(ctx, slackUserID)
 	if err != nil || currentDuration == 0 {
-		return d.startDeepWork(ctx, slackUserID, channelID, 60)
+		return d.startDeepWork(ctx, slackUserID, channelID, 60, "")
 	}
-
 	newDuration := int(currentDuration.Minutes()) + 60
-	return d.startDeepWork(ctx, slackUserID, channelID, newDuration)
+	return d.startDeepWork(ctx, slackUserID, channelID, newDuration, "")
 }
 
 // parseDuration parses a duration string like "2h", "90min", "60" into minutes.
@@ -200,4 +189,9 @@ func (d *DeepWorkService) IsInDeepWork(ctx context.Context, slackUserID string) 
 		return false
 	}
 	return duration > 0
+}
+
+// GetDeepWorkState returns the remaining deep work duration (0 if not active).
+func (d *DeepWorkService) GetDeepWorkState(ctx context.Context, slackUserID string) (time.Duration, error) {
+	return d.cache.GetDeepWork(ctx, slackUserID)
 }

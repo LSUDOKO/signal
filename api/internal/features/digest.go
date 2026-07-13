@@ -42,50 +42,67 @@ func NewDigestService(
 	}
 }
 
-// HandleSlashCommand processes the /digest command to force-send a digest now.
-func (d *DigestService) HandleSlashCommand(ctx context.Context, cmd *slack.SlashCommand, user *domain.User) error {
-	// Send immediate digest
-	dmChannel, err := d.slack.OpenDMChannel(cmd.UserID)
-	if err != nil {
-		return fmt.Errorf("open dm: %w", err)
-	}
+// HandleSlashCommand processes the /digest command via response_url.
+func (d *DigestService) HandleSlashCommand(ctx context.Context, cmd *slack.SlashCommand, user *domain.User, responseURL string) error {
+	// NOTE: response_url is single-use — do the work first, then send one response
+	today := time.Now().Format("2006-01-02")
+	searchQuery := fmt.Sprintf("to:<@%s> after:%s", cmd.UserID, today)
 
-	// Fetch recent user messages via Slack Search API for the on-demand digest
 	recentMessages, err := d.slack.SearchMessages(
-		fmt.Sprintf("from:@%s OR to:@%s after:today", cmd.UserID, cmd.UserID),
-		slack.SearchParameters{Sort: "timestamp", Count: 25, SortDirection: "desc"},
+		searchQuery,
+		slack.SearchParameters{Sort: "timestamp", Count: 20, SortDirection: "desc"},
 	)
 
 	var digestItems []string
 	if err == nil && recentMessages != nil && len(recentMessages.Matches) > 0 {
 		for i, match := range recentMessages.Matches {
-			if i >= 5 {
+			if i >= 8 {
 				break
 			}
-			digestItems = append(digestItems, fmt.Sprintf("• <#%s>: %s", match.Channel.ID, match.Text))
+			text := match.Text
+			if len(text) > 120 {
+				text = text[:120] + "..."
+			}
+			digestItems = append(digestItems, fmt.Sprintf("• *#%s*: %s", match.Channel.Name, text))
 		}
 	}
 
-	digestSummary := "No recent mentions found."
+	var blocks []slack.Block
+	blocks = append(blocks,
+		slack.NewHeaderBlock(
+			slack.NewTextBlockObject("plain_text", "📬 On-Demand Digest", true, false),
+		),
+	)
+
 	if len(digestItems) > 0 {
-		digestSummary = strings.Join(digestItems, "\n")
-	}
-
-	blocks := []slack.Block{
-		slack.NewSectionBlock(
-			slack.NewTextBlockObject("mrkdwn",
-				fmt.Sprintf("📬 *On-Demand Digest*\n\nHere are your recent mentions today:\n\n%s\n\nUse `/digest` anytime or set Quiet Hours in preferences for automatic delivery.", digestSummary),
-				false, false,
+		blocks = append(blocks,
+			slack.NewSectionBlock(
+				slack.NewTextBlockObject("mrkdwn",
+					fmt.Sprintf("*Mentions today (%s):*\n\n%s", today, strings.Join(digestItems, "\n")),
+					false, false,
+				),
+				nil, nil,
 			),
-			nil, nil,
-		),
-		slack.NewActionBlock("digest_actions",
-			slack.NewButtonBlockElement("digest_update_prefs", "prefs", slack.NewTextBlockObject("plain_text", "Update Preferences", false, true)).WithStyle("primary"),
-			slack.NewButtonBlockElement("digest_open_slack", "slack", slack.NewTextBlockObject("plain_text", "Open Slack", false, true)),
-		),
+		)
+	} else {
+		blocks = append(blocks,
+			slack.NewSectionBlock(
+				slack.NewTextBlockObject("mrkdwn",
+					fmt.Sprintf("No mentions found for today (%s).\n\nIf you expect mentions, check that your bot has `search:read` scope in the Slack app settings.", today),
+					false, false,
+				),
+				nil, nil,
+			),
+		)
 	}
 
-	return d.slack.PostMessage(dmChannel, blocks, "On-Demand Digest")
+	blocks = append(blocks,
+		slack.NewContextBlock("digest_footer",
+			slack.NewTextBlockObject("mrkdwn", "_Use `/digest` anytime for an instant update_", false, false),
+		),
+	)
+
+	return d.slack.PostWebhook(responseURL, blocks, "On-Demand Digest")
 }
 
 // SendScheduledDigest sends a digest to a specific user (called by the worker).
@@ -205,8 +222,12 @@ func (d *DigestService) buildDigestBlocks(hour int, urgent, fyi, threads []domai
 	// Actions
 	blocks = append(blocks,
 		slack.NewActionBlock("digest_actions",
-			slack.NewButtonBlockElement("digest_open_slack", "slack", slack.NewTextBlockObject("plain_text", "Open Slack", false, true)).WithStyle("primary"),
-			slack.NewButtonBlockElement("digest_update_prefs", "prefs", slack.NewTextBlockObject("plain_text", "Update Preferences", false, true)),
+			slack.NewButtonBlockElement("digest_open_slack", "slack",
+				slack.NewTextBlockObject("plain_text", "Open Slack", false, false),
+			).WithStyle(slack.StylePrimary),
+			slack.NewButtonBlockElement("digest_update_prefs", "prefs",
+				slack.NewTextBlockObject("plain_text", "Update Preferences", false, false),
+			),
 		),
 	)
 

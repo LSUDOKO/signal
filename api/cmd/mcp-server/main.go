@@ -11,9 +11,25 @@ import (
 	"syscall"
 
 	"github.com/LSUDOKOS/signal/internal/mcp"
+	"github.com/ilyakaznacheev/cleanenv"
 )
 
+// loadEnv loads .env file into environment variables.
+func loadEnv() {
+	paths := []string{".env", "../.env", "../../.env"}
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			var dummy struct{}
+			_ = cleanenv.ReadConfig(p, &dummy)
+			break
+		}
+	}
+}
+
 func main() {
+	// Load .env file first
+	loadEnv()
+
 	port := os.Getenv("MCP_PORT")
 	if port == "" {
 		port = "3001"
@@ -22,8 +38,15 @@ func main() {
 	log.Printf("starting signal MCP server on port %s", port)
 
 	// Initialize Google Calendar client if credentials are configured
+	// Support both env variable names
 	calendarCredsPath := os.Getenv("GOOGLE_CALENDAR_CREDENTIALS")
+	if calendarCredsPath == "" {
+		calendarCredsPath = os.Getenv("MCP_CALENDAR_CREDENTIALS_PATH")
+	}
 	calendarID := os.Getenv("GOOGLE_CALENDAR_ID")
+	if calendarID == "" {
+		calendarID = os.Getenv("MCP_CALENDAR_ID")
+	}
 	if calendarID == "" {
 		calendarID = "primary"
 	}

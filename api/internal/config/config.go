@@ -16,6 +16,8 @@ type Config struct {
 	DB     DBConfig     `env-prefix:"DB_"`
 	Redis  RedisConfig  `env-prefix:"REDIS_"`
 	MCP    MCPConfig    `env-prefix:"MCP_"`
+	GitHub GitHubConfig `env-prefix:"GITHUB_"`
+	Notion NotionConfig `env-prefix:"NOTION_"`
 }
 
 type AppConfig struct {
@@ -27,6 +29,7 @@ type AppConfig struct {
 
 type SlackConfig struct {
 	BotToken      string `env:"BOT_TOKEN" env-required:"true"`
+	UserToken     string `env:"USER_TOKEN"` // For RTS search (optional)
 	AppToken      string `env:"APP_TOKEN" env-required:"true"`
 	SigningSecret string `env:"SIGNING_SECRET" env-required:"true"`
 	ClientID      string `env:"CLIENT_ID" env-required:"true"`
@@ -40,15 +43,20 @@ type OpenAIConfig struct {
 }
 
 type DBConfig struct {
-	Host     string `env:"HOST" env-default:"localhost"`
-	Port     int    `env:"PORT" env-default:"5432"`
-	User     string `env:"USER" env-default:"signal"`
-	Password string `env:"PASSWORD" env-default:"signal"`
-	Name     string `env:"NAME" env-default:"signal"`
-	SSLMode  string `env:"SSLMODE" env-default:"disable"`
+	Host       string `env:"HOST" env-default:"localhost"`
+	Port       int    `env:"PORT" env-default:"5432"`
+	User       string `env:"USER" env-default:"signal"`
+	Password   string `env:"PASSWORD" env-default:"signal"`
+	Name       string `env:"NAME" env-default:"signal"`
+	SSLMode    string `env:"SSLMODE" env-default:"disable"`
+	RailwayURL string // set from DATABASE_URL env var if present
 }
 
 func (d DBConfig) DSN() string {
+	// Railway provides a full DATABASE_URL — use it directly if set
+	if d.RailwayURL != "" {
+		return d.RailwayURL
+	}
 	return fmt.Sprintf(
 		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
 		d.User, d.Password, d.Host, d.Port, d.Name, d.SSLMode,
@@ -67,26 +75,50 @@ type MCPConfig struct {
 	CalendarID          string `env:"CALENDAR_ID" env-default:"primary"`
 }
 
+// GitHubConfig holds GitHub integration configuration.
+type GitHubConfig struct {
+	Token string `env:"TOKEN" env-default:""`
+	Org   string `env:"ORG" env-default:""`
+}
+
+// NotionConfig holds Notion integration configuration.
+type NotionConfig struct {
+	Token string `env:"TOKEN" env-default:""`
+}
+
 // Load reads configuration from environment variables and optional .env file.
 func Load() (*Config, error) {
 	var cfg Config
 
-	// Try loading .env file (ignore error if not present)
-	_ = cleanenv.ReadEnv(&cfg)
+	// Read .env file — try current dir and parent dir (since binaries run from api/)
+	// On Railway, .env won't exist — all vars come from environment
+	envPaths := []string{".env", "../.env"}
+	for _, p := range envPaths {
+		if _, err := os.Stat(p); err == nil {
+			if err := cleanenv.ReadConfig(p, &cfg); err != nil {
+				slog.Warn("could not read .env file", "path", p, "error", err)
+			}
+			break
+		}
+	}
 
-	// Override with environment variables
-	err := cleanenv.ReadEnv(&cfg)
-	if err != nil {
+	// Environment variables override .env file values
+	if err := cleanenv.ReadEnv(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Also check .env file for development
-	if cfg.App.Env == "development" {
-		if _, err := os.Stat(".env"); err == nil {
-			if err := cleanenv.ReadConfig(".env", &cfg); err != nil {
-				slog.Warn("could not read .env file", "error", err)
-			}
-		}
+	// Railway injects DATABASE_URL and REDIS_URL directly — handle both formats
+	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" && cfg.DB.Host == "localhost" {
+		// Railway postgres URL — parse into DB config fields isn't needed
+		// because pgx can accept a full DSN. We expose it via RailwayDSN().
+		cfg.DB.RailwayURL = dbURL
+	}
+	if redisURL := os.Getenv("REDIS_URL"); redisURL != "" && cfg.Redis.Addr == "localhost:6379" {
+		cfg.Redis.Addr = redisURL // go-redis accepts full redis:// URL as Addr too
+	}
+	// Railway injects PORT
+	if port := os.Getenv("PORT"); port != "" {
+		fmt.Sscanf(port, "%d", &cfg.App.Port)
 	}
 
 	return &cfg, nil

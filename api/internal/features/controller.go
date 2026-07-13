@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/LSUDOKOS/signal/internal/domain"
 	"github.com/LSUDOKOS/signal/internal/rts"
@@ -25,15 +26,23 @@ var neurotypes = []struct {
 
 // Controller dispatches Slack events to the appropriate feature handlers.
 type Controller struct {
-	focusMode   *FocusModeService
-	translator  *TranslatorService
-	catchup     *CatchUpService
-	digest      *DigestService
-	deepWork    *DeepWorkService
-	userRepo    store.UserRepository
-	prefsRepo   store.PreferencesRepository
-	rtsSearcher *rts.Searcher
-	slack       SlackAPI
+	focusMode     *FocusModeService
+	translator    *TranslatorService
+	catchup       *CatchUpService
+	digest        *DigestService
+	deepWork      *DeepWorkService
+	mode          *ModeService
+	decisions     *DecisionService
+	planner       *PlannerService
+	threadSummary *ThreadSummaryService
+	memory        *MemoryService
+	github        *GitHubService
+	docs          *DocsService
+	userRepo      store.UserRepository
+	prefsRepo     store.PreferencesRepository
+	rtsSearcher   *rts.Searcher
+	slack         SlackAPI
+	aiClient      interface{ ClassifyUrgency(ctx context.Context, message string) (string, error) }
 }
 
 // NewController creates a new feature controller.
@@ -43,56 +52,67 @@ func NewController(
 	catchup *CatchUpService,
 	digest *DigestService,
 	deepWork *DeepWorkService,
+	mode *ModeService,
+	decisions *DecisionService,
+	planner *PlannerService,
+	threadSummary *ThreadSummaryService,
+	memory *MemoryService,
+	github *GitHubService,
+	docs *DocsService,
 	userRepo store.UserRepository,
 	prefsRepo store.PreferencesRepository,
 	rtsSearcher *rts.Searcher,
 	slack SlackAPI,
+	aiClient interface{ ClassifyUrgency(ctx context.Context, message string) (string, error) },
 ) *Controller {
 	return &Controller{
-		focusMode:   focusMode,
-		translator:  translator,
-		catchup:     catchup,
-		digest:      digest,
-		deepWork:    deepWork,
-		userRepo:    userRepo,
-		prefsRepo:   prefsRepo,
-		rtsSearcher: rtsSearcher,
-		slack:       slack,
+		focusMode:     focusMode,
+		translator:    translator,
+		catchup:       catchup,
+		digest:        digest,
+		deepWork:      deepWork,
+		mode:          mode,
+		decisions:     decisions,
+		planner:       planner,
+		threadSummary: threadSummary,
+		memory:        memory,
+		github:        github,
+		docs:          docs,
+		userRepo:      userRepo,
+		prefsRepo:     prefsRepo,
+		rtsSearcher:   rtsSearcher,
+		slack:         slack,
+		aiClient:      aiClient,
 	}
 }
 
 // HandleMessage routes a message event to applicable features.
 func (c *Controller) HandleMessage(ctx context.Context, event *slackevents.MessageEvent, user *domain.User, teamID string) error {
-	// Skip bot messages and thread replies (handled separately if needed)
+	// Skip bot messages
 	if event.BotID != "" || event.SubType == "bot_message" {
 		return nil
 	}
 
-	// If it's a DM to Signal, show help instead of processing features
+	// If it's a DM to Signal, handle smart auto-response
 	if event.ChannelType == "im" {
 		return c.handleDirectMessage(ctx, event, user)
 	}
 
-	// Ensure user exists
 	user, err := c.ensureUser(ctx, user)
 	if err != nil {
 		slog.Error("failed to ensure user exists", "error", err, "slack_user_id", user.SlackUserID)
-		// Continue anyway with basic functionality
 	}
 
-	// Get user preferences
 	prefs, err := c.prefsRepo.Get(ctx, user.ID)
 	if err != nil {
-		// Default preferences if not set
 		prefs = &domain.UserPreferences{
-			UserID:            user.ID,
-			FocusModeEnabled:  true,
-			FocusThreshold:    50,
+			UserID:           user.ID,
+			FocusModeEnabled: true,
+			FocusThreshold:   50,
 			TranslatorEnabled: true,
 		}
 	}
 
-	// Route to features
 	if prefs.FocusModeEnabled {
 		if err := c.focusMode.HandleMessage(ctx, event, user, prefs); err != nil {
 			slog.Error("focus mode error", "error", err, "channel", event.Channel)
@@ -108,16 +128,55 @@ func (c *Controller) HandleMessage(ctx context.Context, event *slackevents.Messa
 	return nil
 }
 
-// handleDirectMessage handles DMs sent to Signal
-func (c *Controller) handleDirectMessage(ctx context.Context, event *slackevents.MessageEvent, user *domain.User) error {
-	// For now, just respond with help
-	dmChannel, err := c.slack.OpenDMChannel(user.SlackUserID)
+// HandleReaction routes reaction_added events to feature handlers.
+func (c *Controller) HandleReaction(ctx context.Context, event *slackevents.ReactionAddedEvent, user *domain.User, teamID string) error {
+	user, err := c.ensureUser(ctx, user)
 	if err != nil {
-		return fmt.Errorf("open dm: %w", err)
+		slog.Warn("could not ensure user for reaction", "error", err)
+	}
+	return c.threadSummary.HandleReaction(ctx, event, user)
+}
+
+// handleDirectMessage handles DMs sent to Signal with smart deep-work auto-responder.
+func (c *Controller) handleDirectMessage(ctx context.Context, event *slackevents.MessageEvent, user *domain.User) error {
+	user, _ = c.ensureUser(ctx, user)
+
+	// Check if user is in deep work — if so, auto-respond
+	deepWorkDuration, _ := c.deepWork.GetDeepWorkState(ctx, user.SlackUserID)
+	if deepWorkDuration > 0 {
+		// Classify urgency of the incoming DM
+		urgency := "NORMAL"
+		if c.aiClient != nil && strings.TrimSpace(event.Text) != "" {
+			urgency, _ = c.aiClient.ClassifyUrgency(ctx, event.Text)
+		}
+
+		if urgency == "URGENT" || strings.Contains(strings.ToUpper(event.Text), "URGENT") {
+			// Urgent bypass — notify user immediately, respond to sender
+			return c.slack.PostMessage(event.Channel, []slack.Block{
+				slack.NewSectionBlock(
+					slack.NewTextBlockObject("mrkdwn",
+						"🚨 *Urgent message detected.* I'm in Deep Work mode but your message has been flagged as urgent. Please wait — I'll respond as soon as possible.",
+						false, false,
+					),
+					nil, nil,
+				),
+			}, "Urgent Message")
+		}
+
+		// Non-urgent — send auto-response
+		return c.slack.PostMessage(event.Channel, []slack.Block{
+			slack.NewSectionBlock(
+				slack.NewTextBlockObject("mrkdwn",
+					"🧘 I'm in *Deep Work mode* right now.\n\nI'll respond when I'm back. If this is urgent, reply with the word *URGENT* and I'll be notified immediately.",
+					false, false,
+				),
+				nil, nil,
+			),
+		}, "Deep Work Auto-Reply")
 	}
 
-	// Send help message
-	return c.slack.PostMessage(dmChannel, buildHelpBlocks(), "Signal Help")
+	// Not in deep work — show help
+	return c.slack.PostMessage(event.Channel, buildHelpBlocks(), "Signal Help")
 }
 
 // HandleAppMention handles when Signal is @mentioned.
@@ -172,26 +231,65 @@ func (c *Controller) HandleBlockAction(ctx context.Context, action *slack.Intera
 }
 
 // HandleCommand routes slash commands to features.
-func (c *Controller) HandleCommand(ctx context.Context, cmd *slack.SlashCommand, user *domain.User) error {
+func (c *Controller) HandleCommand(ctx context.Context, cmd *slack.SlashCommand, user *domain.User, responseURL string) error {
+	slog.Info("📝 handling slash command",
+		"command", cmd.Command,
+		"user", cmd.UserID,
+		"text", cmd.Text,
+		"has_response_url", responseURL != "")
+
 	user, err := c.ensureUser(ctx, user)
 	if err != nil {
+		slog.Error("ensureUser failed", "error", err)
 		return err
 	}
 
+	slog.Info("✅ user ensured", "slack_id", user.SlackUserID)
+
+	var handlerErr error
 	switch cmd.Command {
 	case "/signal":
-		return c.handleOpenPreferences(ctx, cmd, user)
+		slog.Info("routing to handleOpenPreferences")
+		handlerErr = c.handleOpenPreferences(ctx, cmd, user, responseURL)
 	case "/translate":
-		return c.translator.HandleSlashCommand(ctx, cmd, user)
+		slog.Info("routing to translator")
+		handlerErr = c.translator.HandleSlashCommand(ctx, cmd, user, responseURL)
 	case "/catchup":
-		return c.catchup.HandleSlashCommand(ctx, cmd, user)
+		slog.Info("routing to catchup")
+		handlerErr = c.catchup.HandleSlashCommand(ctx, cmd, user, responseURL)
 	case "/focus":
-		return c.deepWork.HandleSlashCommand(ctx, cmd, user)
+		slog.Info("routing to deepwork")
+		handlerErr = c.deepWork.HandleSlashCommand(ctx, cmd, user, responseURL)
 	case "/digest":
-		return c.digest.HandleSlashCommand(ctx, cmd, user)
+		slog.Info("routing to digest")
+		handlerErr = c.digest.HandleSlashCommand(ctx, cmd, user, responseURL)
+	case "/mode":
+		slog.Info("routing to mode")
+		handlerErr = c.mode.HandleSlashCommand(ctx, cmd, user, responseURL)
+	case "/decisions":
+		slog.Info("routing to decisions")
+		handlerErr = c.decisions.HandleSlashCommand(ctx, cmd, user, responseURL)
+	case "/plan":
+		slog.Info("routing to planner")
+		handlerErr = c.planner.HandleSlashCommand(ctx, cmd, user, responseURL)
+	case "/github":
+		slog.Info("routing to github")
+		handlerErr = c.github.HandleSlashCommand(ctx, cmd, user, responseURL)
+	case "/docs":
+		slog.Info("routing to docs")
+		handlerErr = c.docs.HandleSlashCommand(ctx, cmd, user, responseURL)
 	default:
+		slog.Warn("unknown command", "command", cmd.Command)
 		return nil
 	}
+
+	if handlerErr != nil {
+		slog.Error("❌ command handler failed", "command", cmd.Command, "error", handlerErr)
+		return handlerErr
+	}
+
+	slog.Info("✅ command handled successfully", "command", cmd.Command)
+	return nil
 }
 
 // HandleAppHomeOpened publishes the App Home view with user preferences.
@@ -218,30 +316,32 @@ func (c *Controller) ensureUser(ctx context.Context, user *domain.User) (*domain
 		return user, fmt.Errorf("user has no slack_user_id")
 	}
 
-	existing, err := c.userRepo.GetBySlackID(ctx, user.SlackUserID, user.SlackTeamID)
-	if err != nil {
-		// User doesn't exist, create new user
-		newUser := &domain.User{
-			SlackUserID: user.SlackUserID,
-			SlackTeamID: user.SlackTeamID,
+	// Use Upsert — no more duplicate key errors ever
+	newUser := &domain.User{
+		SlackUserID: user.SlackUserID,
+		SlackTeamID: user.SlackTeamID,
+		Neurotype:   "unspecified",
+	}
+	if err := c.userRepo.Upsert(ctx, newUser); err != nil {
+		// Upsert failed (very unlikely), fall back to get
+		if existing, fetchErr := c.userRepo.GetBySlackID(ctx, user.SlackUserID, user.SlackTeamID); fetchErr == nil {
+			return existing, nil
 		}
-		if err := c.userRepo.Create(ctx, newUser); err != nil {
-			// If we can't create the user, log but return the basic user object
-			// so features can still work (just without persistence)
-			slog.Error("failed to create user in database", "error", err, "slack_user_id", user.SlackUserID)
-			return newUser, err
-		}
+		slog.Warn("upsert failed, using in-memory user", "error", err, "slack_user_id", user.SlackUserID)
 		return newUser, nil
 	}
-	return existing, nil
+	return newUser, nil
 }
 
-func (c *Controller) handleOpenPreferences(ctx context.Context, cmd *slack.SlashCommand, user *domain.User) error {
-	dmChannel, err := c.slack.OpenDMChannel(user.SlackUserID)
+func (c *Controller) handleOpenPreferences(ctx context.Context, cmd *slack.SlashCommand, user *domain.User, responseURL string) error {
+	slog.Info("🔧 sending help via response_url", "user_id", user.SlackUserID)
+	err := c.slack.PostWebhook(responseURL, buildHelpBlocks(), "Signal Help")
 	if err != nil {
-		return fmt.Errorf("open dm: %w", err)
+		slog.Error("❌ failed to post help via webhook", "error", err)
+		return fmt.Errorf("post webhook: %w", err)
 	}
-	return c.slack.PostMessage(dmChannel, buildHelpBlocks(), "Signal Help")
+	slog.Info("✅ help message sent via response_url")
+	return nil
 }
 
 func buildHelpBlocks() []slack.Block {
@@ -250,39 +350,52 @@ func buildHelpBlocks() []slack.Block {
 			slack.NewTextBlockObject("plain_text", "🧘 Signal — Calm Slack for Neurodivergent Professionals", true, false),
 		),
 		slack.NewSectionBlock(
-			slack.NewTextBlockObject("mrkdwn",
-				"Here are the commands you can use:",
-				false, false,
-			),
+			slack.NewTextBlockObject("mrkdwn", "Here are all my commands:", false, false),
 			nil, nil,
 		),
 		slack.NewDividerBlock(),
 		slack.NewSectionBlock(
 			nil,
 			[]*slack.TextBlockObject{
-				slack.NewTextBlockObject("mrkdwn",
-					"*/signal*\nOpen this help menu", false, false),
-				slack.NewTextBlockObject("mrkdwn",
-					"*/translate [message]*\nDecode ambiguous workplace language", false, false),
+				slack.NewTextBlockObject("mrkdwn", "*/signal*\nHelp menu", false, false),
+				slack.NewTextBlockObject("mrkdwn", "*/mode [adhd|autism|anxiety]*\nPersonalize Signal for your neurotype", false, false),
 			},
 			nil,
 		),
 		slack.NewSectionBlock(
 			nil,
 			[]*slack.TextBlockObject{
-				slack.NewTextBlockObject("mrkdwn",
-					"*/catchup [topic]*\nGet AI summary of what you missed", false, false),
-				slack.NewTextBlockObject("mrkdwn",
-					"*/focus [duration]*\nStart deep work mode (e.g., /focus 2h)", false, false),
+				slack.NewTextBlockObject("mrkdwn", "*/translate [message]*\nDecode ambiguous workplace language", false, false),
+				slack.NewTextBlockObject("mrkdwn", "*/catchup [topic]*\nAI summary of what you missed", false, false),
 			},
 			nil,
 		),
 		slack.NewSectionBlock(
-			slack.NewTextBlockObject("mrkdwn",
-				"*/digest*\nSend an instant digest\n\n*@Signal help*\nShow this menu",
-				false, false,
-			),
-			nil, nil,
+			nil,
+			[]*slack.TextBlockObject{
+				slack.NewTextBlockObject("mrkdwn", "*/focus [2h]*\nStart deep work mode", false, false),
+				slack.NewTextBlockObject("mrkdwn", "*/decisions [#channel]*\nFind all decisions in a channel", false, false),
+			},
+			nil,
+		),
+		slack.NewSectionBlock(
+			nil,
+			[]*slack.TextBlockObject{
+				slack.NewTextBlockObject("mrkdwn", "*/plan [goal]*\nAI action planner for your tasks", false, false),
+				slack.NewTextBlockObject("mrkdwn", "*/digest*\nInstant digest of your mentions", false, false),
+			},
+			nil,
+		),
+		slack.NewSectionBlock(
+			nil,
+			[]*slack.TextBlockObject{
+				slack.NewTextBlockObject("mrkdwn", "*/github [query]*\nSearch PRs, issues, repos", false, false),
+				slack.NewTextBlockObject("mrkdwn", "*/docs [query]*\nSearch your Notion workspace", false, false),
+			},
+			nil,
+		),
+		slack.NewContextBlock("help_footer",
+			slack.NewTextBlockObject("mrkdwn", "_React with 📋 on any thread to get an instant AI summary_", false, false),
 		),
 	}
 }
@@ -312,10 +425,12 @@ func isDeepWorkAction(actionID string) bool {
 // SlackAPI provides access to the Slack API for features.
 type SlackAPI interface {
 	PostMessage(channelID string, blocks []slack.Block, text string) error
+	PostWebhook(responseURL string, blocks []slack.Block, text string) error
 	PostEphemeral(channelID, userID string, blocks []slack.Block, text string) error
 	OpenDMChannel(userID string) (string, error)
 	GetUser(userID string) (*slack.User, error)
 	GetChannelHistory(channelID string, limit int) ([]slack.Message, error)
+	GetThreadMessages(channelID, threadTS string) ([]slack.Message, error)
 	SearchMessages(query string, params slack.SearchParameters) (*slack.SearchMessages, error)
 	SetUserStatus(userID, statusText, statusEmoji string, expiration int) error
 	PublishView(userID string, blocks []slack.Block) error

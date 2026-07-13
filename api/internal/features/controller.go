@@ -36,6 +36,8 @@ type Controller struct {
 	planner       *PlannerService
 	threadSummary *ThreadSummaryService
 	memory        *MemoryService
+	github        *GitHubService
+	docs          *DocsService
 	userRepo      store.UserRepository
 	prefsRepo     store.PreferencesRepository
 	rtsSearcher   *rts.Searcher
@@ -55,6 +57,8 @@ func NewController(
 	planner *PlannerService,
 	threadSummary *ThreadSummaryService,
 	memory *MemoryService,
+	github *GitHubService,
+	docs *DocsService,
 	userRepo store.UserRepository,
 	prefsRepo store.PreferencesRepository,
 	rtsSearcher *rts.Searcher,
@@ -72,6 +76,8 @@ func NewController(
 		planner:       planner,
 		threadSummary: threadSummary,
 		memory:        memory,
+		github:        github,
+		docs:          docs,
 		userRepo:      userRepo,
 		prefsRepo:     prefsRepo,
 		rtsSearcher:   rtsSearcher,
@@ -266,6 +272,12 @@ func (c *Controller) HandleCommand(ctx context.Context, cmd *slack.SlashCommand,
 	case "/plan":
 		slog.Info("routing to planner")
 		handlerErr = c.planner.HandleSlashCommand(ctx, cmd, user, responseURL)
+	case "/github":
+		slog.Info("routing to github")
+		handlerErr = c.github.HandleSlashCommand(ctx, cmd, user, responseURL)
+	case "/docs":
+		slog.Info("routing to docs")
+		handlerErr = c.docs.HandleSlashCommand(ctx, cmd, user, responseURL)
 	default:
 		slog.Warn("unknown command", "command", cmd.Command)
 		return nil
@@ -371,6 +383,14 @@ func buildHelpBlocks() []slack.Block {
 			[]*slack.TextBlockObject{
 				slack.NewTextBlockObject("mrkdwn", "*/plan [goal]*\nAI action planner for your tasks", false, false),
 				slack.NewTextBlockObject("mrkdwn", "*/digest*\nInstant digest of your mentions", false, false),
+			},
+			nil,
+		),
+		slack.NewSectionBlock(
+			nil,
+			[]*slack.TextBlockObject{
+				slack.NewTextBlockObject("mrkdwn", "*/github [query]*\nSearch PRs, issues, repos", false, false),
+				slack.NewTextBlockObject("mrkdwn", "*/docs [query]*\nSearch your Notion workspace", false, false),
 			},
 			nil,
 		),

@@ -124,10 +124,24 @@ func main() {
 	decisions := features.NewDecisionService(slackAPI, aiClient, rtsSearcher)
 	planner := features.NewPlannerService(slackAPI, aiClient, memory)
 	threadSummary := features.NewThreadSummaryService(slackAPI, aiClient, memory)
+	githubService := features.NewGitHubService(slackAPI, aiClient, memory, cfg.GitHub.Token, cfg.GitHub.Org)
+	docsService := features.NewDocsService(slackAPI, aiClient, memory, cfg.Notion.Token)
+
+	if githubService.IsConfigured() {
+		slog.Info("github mcp initialized", "org", cfg.GitHub.Org)
+	} else {
+		slog.Warn("github mcp not configured (set GITHUB_TOKEN + GITHUB_ORG)")
+	}
+	if docsService.IsConfigured() {
+		slog.Info("docs mcp (notion) initialized")
+	} else {
+		slog.Warn("docs mcp not configured (set NOTION_TOKEN)")
+	}
 
 	featureCtrl := features.NewController(
 		focusMode, translator, catchup, digest, deepWork,
 		modeService, decisions, planner, threadSummary, memory,
+		githubService, docsService,
 		userRepo, prefsRepo, rtsSearcher, slackAPI, aiClient,
 	)
 

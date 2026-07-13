@@ -67,9 +67,32 @@ func (m *MemoryService) GetContext(ctx context.Context, slackUserID string) stri
 
 // ClearMemory wipes all stored interactions for a user.
 func (m *MemoryService) ClearMemory(ctx context.Context, slackUserID string) {
-	// Use the raw cache key delete
 	entries := []MemoryEntry{}
 	m.saveEntries(ctx, slackUserID, entries)
+}
+
+// GetGitHubUser returns the stored GitHub username for a Slack user (if set via /github link).
+func (m *MemoryService) GetGitHubUser(ctx context.Context, slackUserID string) string {
+	type sessionGetter interface {
+		GetSession(ctx context.Context, key string) (string, error)
+	}
+	if sg, ok := m.cache.(sessionGetter); ok {
+		val, err := sg.GetSession(ctx, "github:user:"+slackUserID)
+		if err == nil {
+			return val
+		}
+	}
+	return ""
+}
+
+// SetGitHubUser links a GitHub username to a Slack user.
+func (m *MemoryService) SetGitHubUser(ctx context.Context, slackUserID, githubUsername string) {
+	type sessionSetter interface {
+		SetSession(ctx context.Context, key string, value string, ttl time.Duration) error
+	}
+	if ss, ok := m.cache.(sessionSetter); ok {
+		_ = ss.SetSession(ctx, "github:user:"+slackUserID, githubUsername, 30*24*time.Hour)
+	}
 }
 
 func (m *MemoryService) loadEntries(ctx context.Context, slackUserID string) []MemoryEntry {

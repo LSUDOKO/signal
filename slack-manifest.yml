@@ -54,6 +54,14 @@ features:
       description: AI action planner — turn any goal into concrete tasks
       usage_hint: "[describe your goal or task list]"
 
+    - command: /github
+      description: Search GitHub PRs, issues, and repos in your org
+      usage_hint: "[open PRs | issues | repo name | any query]"
+
+    - command: /docs
+      description: Search your Notion workspace for documentation
+      usage_hint: "[search query]"
+
 oauth_config:
   scopes:
     bot:
@@ -79,6 +87,10 @@ oauth_config:
       - users:read
       - users:read.email
       - users.profile:write
+    user:
+      - search:read
+      - users.profile:write
+      - users.profile:read
 
 settings:
   event_subscriptions:

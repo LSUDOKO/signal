@@ -16,6 +16,8 @@ type Config struct {
 	DB     DBConfig     `env-prefix:"DB_"`
 	Redis  RedisConfig  `env-prefix:"REDIS_"`
 	MCP    MCPConfig    `env-prefix:"MCP_"`
+	GitHub GitHubConfig `env-prefix:"GITHUB_"`
+	Notion NotionConfig `env-prefix:"NOTION_"`
 }
 
 type AppConfig struct {
@@ -66,6 +68,17 @@ type MCPConfig struct {
 	Timeout             string `env:"SERVER_TIMEOUT" env-default:"30s"`
 	CalendarCredsPath   string `env:"CALENDAR_CREDENTIALS_PATH" env-default:""`
 	CalendarID          string `env:"CALENDAR_ID" env-default:"primary"`
+}
+
+// GitHubConfig holds GitHub integration configuration.
+type GitHubConfig struct {
+	Token string `env:"TOKEN" env-default:""`
+	Org   string `env:"ORG" env-default:""`
+}
+
+// NotionConfig holds Notion integration configuration.
+type NotionConfig struct {
+	Token string `env:"TOKEN" env-default:""`
 }
 
 // Load reads configuration from environment variables and optional .env file.

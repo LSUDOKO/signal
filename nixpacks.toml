@@ -1,0 +1,5 @@
+[phases.build]
+cmds = ["cd api && go build -o /app/signal ./cmd/api/main.go"]
+
+[start]
+cmd = "/app/signal"

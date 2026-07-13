@@ -51,16 +51,23 @@ func main() {
 	}
 	defer db.Close()
 
-	// Run database migrations
-	migrationsDir := "db/migrations"
-	if _, err := os.Stat(migrationsDir); err == nil {
+	// Run database migrations — check multiple paths for local dev and Railway deployment
+	migrationsDirs := []string{"db/migrations", "/app/db/migrations", "../db/migrations"}
+	migrationsDir := ""
+	for _, d := range migrationsDirs {
+		if _, err := os.Stat(d); err == nil {
+			migrationsDir = d
+			break
+		}
+	}
+	if migrationsDir != "" {
 		slog.Info("running database migrations", "dir", migrationsDir)
 		if err := postgres.RunMigrations(ctx, db.Pool(), migrationsDir); err != nil {
 			slog.Error("database migration failed", "error", err)
 			os.Exit(1)
 		}
 	} else {
-		slog.Warn("migrations directory not found, skipping", "dir", migrationsDir)
+		slog.Warn("migrations directory not found in any expected path, skipping")
 	}
 
 	// Initialize repositories

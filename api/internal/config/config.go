@@ -43,15 +43,20 @@ type OpenAIConfig struct {
 }
 
 type DBConfig struct {
-	Host     string `env:"HOST" env-default:"localhost"`
-	Port     int    `env:"PORT" env-default:"5432"`
-	User     string `env:"USER" env-default:"signal"`
-	Password string `env:"PASSWORD" env-default:"signal"`
-	Name     string `env:"NAME" env-default:"signal"`
-	SSLMode  string `env:"SSLMODE" env-default:"disable"`
+	Host       string `env:"HOST" env-default:"localhost"`
+	Port       int    `env:"PORT" env-default:"5432"`
+	User       string `env:"USER" env-default:"signal"`
+	Password   string `env:"PASSWORD" env-default:"signal"`
+	Name       string `env:"NAME" env-default:"signal"`
+	SSLMode    string `env:"SSLMODE" env-default:"disable"`
+	RailwayURL string // set from DATABASE_URL env var if present
 }
 
 func (d DBConfig) DSN() string {
+	// Railway provides a full DATABASE_URL — use it directly if set
+	if d.RailwayURL != "" {
+		return d.RailwayURL
+	}
 	return fmt.Sprintf(
 		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
 		d.User, d.Password, d.Host, d.Port, d.Name, d.SSLMode,
@@ -86,6 +91,7 @@ func Load() (*Config, error) {
 	var cfg Config
 
 	// Read .env file — try current dir and parent dir (since binaries run from api/)
+	// On Railway, .env won't exist — all vars come from environment
 	envPaths := []string{".env", "../.env"}
 	for _, p := range envPaths {
 		if _, err := os.Stat(p); err == nil {
@@ -97,9 +103,22 @@ func Load() (*Config, error) {
 	}
 
 	// Environment variables override .env file values
-	err := cleanenv.ReadEnv(&cfg)
-	if err != nil {
+	if err := cleanenv.ReadEnv(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Railway injects DATABASE_URL and REDIS_URL directly — handle both formats
+	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" && cfg.DB.Host == "localhost" {
+		// Railway postgres URL — parse into DB config fields isn't needed
+		// because pgx can accept a full DSN. We expose it via RailwayDSN().
+		cfg.DB.RailwayURL = dbURL
+	}
+	if redisURL := os.Getenv("REDIS_URL"); redisURL != "" && cfg.Redis.Addr == "localhost:6379" {
+		cfg.Redis.Addr = redisURL // go-redis accepts full redis:// URL as Addr too
+	}
+	// Railway injects PORT
+	if port := os.Getenv("PORT"); port != "" {
+		fmt.Sscanf(port, "%d", &cfg.App.Port)
 	}
 
 	return &cfg, nil

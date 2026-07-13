@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/LSUDOKOS/signal/internal/ai"
@@ -80,7 +81,12 @@ func main() {
 	postgres.NewTranslationRepository(db)
 
 	// Initialize Redis cache
-	cache, err := redis.NewCache(ctx, fmt.Sprintf("redis://%s", cfg.Redis.Addr))
+	// Render provides REDIS_URL as a full URL; locally we build it from REDIS_ADDR
+	redisURL := cfg.Redis.Addr
+	if !strings.HasPrefix(redisURL, "redis://") && !strings.HasPrefix(redisURL, "rediss://") {
+		redisURL = "redis://" + redisURL
+	}
+	cache, err := redis.NewCache(ctx, redisURL)
 	if err != nil {
 		slog.Error("failed to connect to redis", "error", err)
 		os.Exit(1)

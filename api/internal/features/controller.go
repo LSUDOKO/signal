@@ -227,10 +227,15 @@ func (c *Controller) ensureUser(ctx context.Context, user *domain.User) (*domain
 			Neurotype:   "unspecified", // Default neurotype to satisfy DB constraint
 		}
 		if err := c.userRepo.Create(ctx, newUser); err != nil {
-			// If we can't create the user, log but return the basic user object
+			// Duplicate key error means user was created by another request
+			// Try to fetch again
+			if existing, fetchErr := c.userRepo.GetBySlackID(ctx, user.SlackUserID, user.SlackTeamID); fetchErr == nil {
+				return existing, nil
+			}
+			// If we still can't get the user, log but return the basic user object
 			// so features can still work (just without persistence)
-			slog.Error("failed to create user in database", "error", err, "slack_user_id", user.SlackUserID)
-			return newUser, err
+			slog.Warn("failed to create user in database, using in-memory user", "error", err, "slack_user_id", user.SlackUserID)
+			return newUser, nil // Return nil error to allow features to work
 		}
 		return newUser, nil
 	}

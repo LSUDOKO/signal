@@ -79,23 +79,42 @@ func (h *EventHandler) eventLoop(ctx context.Context) {
 }
 
 func (h *EventHandler) handleEvent(ctx context.Context, event socketmode.Event) {
+	// DEBUG: Log ALL incoming events with full details
+	slog.Info("📥 INCOMING SLACK EVENT", 
+		"type", event.Type,
+		"has_request", event.Request != nil,
+		"has_data", event.Data != nil)
+	
 	switch event.Type {
 	case socketmode.EventTypeEventsAPI:
+		slog.Info("🔔 EventsAPI event received")
 		if event.Request != nil {
 			h.handleEventsAPI(ctx, event)
 		}
 	case socketmode.EventTypeInteractive:
+		slog.Info("🎯 Interactive event received")
 		if event.Request != nil {
 			h.handleInteractive(ctx, event)
 		}
 	case socketmode.EventTypeSlashCommand:
+		slog.Info("⚡ Slash command received")
 		if event.Request != nil {
 			h.handleSlashCommand(ctx, event)
 		}
 	case socketmode.EventTypeConnected:
-		slog.Info("slack socket mode connected")
+		slog.Info("✅ slack socket mode connected")
+	case socketmode.EventTypeConnecting:
+		slog.Info("🔄 slack socket mode connecting...")
+	case socketmode.EventTypeConnectionError:
+		slog.Error("❌ slack socket mode connection error", "event", event)
+	case socketmode.EventTypeDisconnect:
+		slog.Warn("⚠️ slack socket mode disconnected")
+	case socketmode.EventTypeIncomingError:
+		slog.Error("❌ slack socket mode incoming error", "event", event)
+	case socketmode.EventTypeHello:
+		slog.Info("👋 slack socket mode hello received")
 	default:
-		slog.Debug("unhandled socket event type", "type", event.Type)
+		slog.Warn("❓ UNKNOWN socket event type", "type", event.Type, "event", fmt.Sprintf("%+v", event))
 		if event.Request != nil {
 			h.client.Ack(*event.Request)
 		}

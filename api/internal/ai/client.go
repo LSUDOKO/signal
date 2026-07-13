@@ -162,15 +162,20 @@ History:
 }
 
 func buildCatchUpPrompt(messages []string) string {
-	return fmt.Sprintf(`Summarize these Slack messages into a "What You Missed" digest.
-Organize by topic. Highlight decisions, action items, and anything requiring the user's input.
+	return fmt.Sprintf(`Summarize these Slack messages into a plain "What You Missed" digest.
 
-For each topic:
-## [Topic Name]
-- **Decision:** [What was decided]
-- **Context:** [2-sentence background]
-- **Your Action:** [What you need to do, or "None"]
-- **Link:** [Jump to message]
+IMPORTANT: Use ONLY Slack mrkdwn formatting:
+- Use *bold* for topic names (NOT ## markdown headers)
+- Use bullet points with •
+- NO markdown ## headers
+- NO [link](#anchor) style links
+- Keep each topic to 3-4 lines max
+
+Format each topic like this:
+*Topic Name*
+• Decision: what was decided (or "None")
+• Context: 1-2 sentence background
+• Your action: what you need to do (or "None needed")
 
 Messages:
 %s`, strings.Join(messages, "\n"))

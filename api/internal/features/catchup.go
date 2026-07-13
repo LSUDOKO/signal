@@ -40,14 +40,7 @@ func (c *CatchUpService) HandleSlashCommand(ctx context.Context, cmd *slack.Slas
 		}, "Catch-Up Help")
 	}
 
-	// Immediately acknowledge
-	_ = c.slack.PostWebhook(responseURL, []slack.Block{
-		slack.NewSectionBlock(
-			slack.NewTextBlockObject("mrkdwn", fmt.Sprintf("🔍 Searching for *\"%s\"*...", query), false, false),
-			nil, nil,
-		),
-	}, "Searching...")
-
+	// NOTE: response_url can only be called once — send the final result directly
 	result, err := c.searchAndSummarize(ctx, cmd.UserID, query, 7)
 	if err != nil {
 		slog.Error("catchup search failed", "error", err, "query", query)
@@ -71,7 +64,7 @@ func (c *CatchUpService) HandleSlashCommand(ctx context.Context, cmd *slack.Slas
 		}, "No Results")
 	}
 
-	return c.slack.PostWebhook(responseURL, c.buildResultBlocks(query, result, ""), "Catch-Up Results")
+	return c.slack.PostWebhook(responseURL, c.buildResultBlocks(query, result), "Catch-Up Results")
 }
 
 // searchAndSummarize performs a Slack search and AI summarization.
@@ -139,7 +132,7 @@ func (c *CatchUpService) aiOnlySummary(ctx context.Context, query string) (*doma
 	}, nil
 }
 
-func (c *CatchUpService) buildResultBlocks(query string, result *domain.CatchUpResult, _ string) []slack.Block {
+func (c *CatchUpService) buildResultBlocks(query string, result *domain.CatchUpResult) []slack.Block {
 	var blocks []slack.Block
 
 	blocks = append(blocks,

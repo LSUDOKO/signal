@@ -96,14 +96,7 @@ func (t *TranslatorService) HandleSlashCommand(ctx context.Context, cmd *slack.S
 		}, "Translation Help")
 	}
 
-	// Immediately acknowledge with a processing message
-	_ = t.slack.PostWebhook(responseURL, []slack.Block{
-		slack.NewSectionBlock(
-			slack.NewTextBlockObject("mrkdwn", "🔍 Analyzing tone...", false, false),
-			nil, nil,
-		),
-	}, "Analyzing...")
-
+	// NOTE: response_url is single-use — call it ONCE with the final result
 	analysis, err := t.ai.AnalyzeTone(ctx, message)
 	if err != nil {
 		slog.Error("ai tone analysis failed for slash command", "error", err)

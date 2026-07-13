@@ -44,46 +44,63 @@ func NewDigestService(
 
 // HandleSlashCommand processes the /digest command via response_url.
 func (d *DigestService) HandleSlashCommand(ctx context.Context, cmd *slack.SlashCommand, user *domain.User, responseURL string) error {
-	// Immediately acknowledge
-	_ = d.slack.PostWebhook(responseURL, []slack.Block{
-		slack.NewSectionBlock(
-			slack.NewTextBlockObject("mrkdwn", "📬 Building your digest...", false, false),
-			nil, nil,
-		),
-	}, "Building digest...")
+	// NOTE: response_url is single-use — do the work first, then send one response
+	today := time.Now().Format("2006-01-02")
+	searchQuery := fmt.Sprintf("to:<@%s> after:%s", cmd.UserID, today)
 
 	recentMessages, err := d.slack.SearchMessages(
-		fmt.Sprintf("from:@%s OR to:@%s after:today", cmd.UserID, cmd.UserID),
-		slack.SearchParameters{Sort: "timestamp", Count: 25, SortDirection: "desc"},
+		searchQuery,
+		slack.SearchParameters{Sort: "timestamp", Count: 20, SortDirection: "desc"},
 	)
 
 	var digestItems []string
 	if err == nil && recentMessages != nil && len(recentMessages.Matches) > 0 {
 		for i, match := range recentMessages.Matches {
-			if i >= 5 {
+			if i >= 8 {
 				break
 			}
-			digestItems = append(digestItems, fmt.Sprintf("• <#%s>: %s", match.Channel.ID, match.Text))
+			text := match.Text
+			if len(text) > 120 {
+				text = text[:120] + "..."
+			}
+			digestItems = append(digestItems, fmt.Sprintf("• *#%s*: %s", match.Channel.Name, text))
 		}
 	}
 
-	digestSummary := "No recent mentions found today."
-	if len(digestItems) > 0 {
-		digestSummary = strings.Join(digestItems, "\n")
-	}
-
-	blocks := []slack.Block{
+	var blocks []slack.Block
+	blocks = append(blocks,
 		slack.NewHeaderBlock(
 			slack.NewTextBlockObject("plain_text", "📬 On-Demand Digest", true, false),
 		),
-		slack.NewSectionBlock(
-			slack.NewTextBlockObject("mrkdwn",
-				fmt.Sprintf("*Recent mentions today:*\n\n%s\n\n_Use `/digest` anytime or set Quiet Hours in preferences for automatic delivery._", digestSummary),
-				false, false,
+	)
+
+	if len(digestItems) > 0 {
+		blocks = append(blocks,
+			slack.NewSectionBlock(
+				slack.NewTextBlockObject("mrkdwn",
+					fmt.Sprintf("*Mentions today (%s):*\n\n%s", today, strings.Join(digestItems, "\n")),
+					false, false,
+				),
+				nil, nil,
 			),
-			nil, nil,
-		),
+		)
+	} else {
+		blocks = append(blocks,
+			slack.NewSectionBlock(
+				slack.NewTextBlockObject("mrkdwn",
+					fmt.Sprintf("No mentions found for today (%s).\n\nIf you expect mentions, check that your bot has `search:read` scope in the Slack app settings.", today),
+					false, false,
+				),
+				nil, nil,
+			),
+		)
 	}
+
+	blocks = append(blocks,
+		slack.NewContextBlock("digest_footer",
+			slack.NewTextBlockObject("mrkdwn", "_Use `/digest` anytime for an instant update_", false, false),
+		),
+	)
 
 	return d.slack.PostWebhook(responseURL, blocks, "On-Demand Digest")
 }
@@ -205,8 +222,12 @@ func (d *DigestService) buildDigestBlocks(hour int, urgent, fyi, threads []domai
 	// Actions
 	blocks = append(blocks,
 		slack.NewActionBlock("digest_actions",
-			slack.NewButtonBlockElement("digest_open_slack", "slack", slack.NewTextBlockObject("plain_text", "Open Slack", false, true)).WithStyle("primary"),
-			slack.NewButtonBlockElement("digest_update_prefs", "prefs", slack.NewTextBlockObject("plain_text", "Update Preferences", false, true)),
+			slack.NewButtonBlockElement("digest_open_slack", "slack",
+				slack.NewTextBlockObject("plain_text", "Open Slack", false, false),
+			).WithStyle(slack.StylePrimary),
+			slack.NewButtonBlockElement("digest_update_prefs", "prefs",
+				slack.NewTextBlockObject("plain_text", "Update Preferences", false, false),
+			),
 		),
 	)
 

@@ -99,14 +99,18 @@ func (d *DeepWorkService) startDeepWork(ctx context.Context, slackUserID, channe
 		),
 		slack.NewSectionBlock(
 			slack.NewTextBlockObject("mrkdwn",
-				fmt.Sprintf("*Duration:* %d minutes\n*Ends at:* %s\n*Status set:* 🧘 %s\n\nNon-urgent notifications are paused. I'll auto-respond to DMs.", durationMinutes, endTime.Format("3:04 PM"), statusText),
+				fmt.Sprintf("*Duration:* %d minutes\n*Ends at:* %s\n\nYour Slack status has been updated. Non-urgent notifications are paused.", durationMinutes, endTime.Format("3:04 PM")),
 				false, false,
 			),
 			nil, nil,
 		),
 		slack.NewActionBlock("deepwork_actions",
-			slack.NewButtonBlockElement("deepwork_extend", "60", slack.NewTextBlockObject("plain_text", "Extend 1h", false, true)).WithStyle("primary"),
-			slack.NewButtonBlockElement("deepwork_stop", "stop", slack.NewTextBlockObject("plain_text", "End Early", false, true)).WithStyle("danger"),
+			slack.NewButtonBlockElement("deepwork_extend", "60",
+				slack.NewTextBlockObject("plain_text", "Extend 1h", false, false),
+			).WithStyle(slack.StylePrimary),
+			slack.NewButtonBlockElement("deepwork_stop", "stop",
+				slack.NewTextBlockObject("plain_text", "End Early", false, false),
+			).WithStyle(slack.StyleDanger),
 		),
 	}
 

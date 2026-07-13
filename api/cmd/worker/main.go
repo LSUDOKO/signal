@@ -242,6 +242,19 @@ func (w *workerSlackAPI) PostMessage(channelID string, blocks []slack.Block, tex
 	return err
 }
 
+func (w *workerSlackAPI) PostWebhook(responseURL string, blocks []slack.Block, text string) error {
+	// Worker uses scheduled digests — no response_url available, post as regular message
+	// responseURL is empty in scheduled context; this is a no-op
+	if responseURL == "" {
+		return nil
+	}
+	msg := &slack.WebhookMessage{
+		Text:   text,
+		Blocks: &slack.Blocks{BlockSet: blocks},
+	}
+	return slack.PostWebhookContext(context.Background(), responseURL, msg)
+}
+
 func (w *workerSlackAPI) PostEphemeral(channelID, userID string, blocks []slack.Block, text string) error {
 	_, err := w.api.PostEphemeral(channelID, userID, slack.MsgOptionBlocks(blocks...), slack.MsgOptionText(text, false))
 	return err

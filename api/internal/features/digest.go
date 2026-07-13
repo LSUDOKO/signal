@@ -42,15 +42,16 @@ func NewDigestService(
 	}
 }
 
-// HandleSlashCommand processes the /digest command to force-send a digest now.
-func (d *DigestService) HandleSlashCommand(ctx context.Context, cmd *slack.SlashCommand, user *domain.User) error {
-	// Send immediate digest
-	dmChannel, err := d.slack.OpenDMChannel(cmd.UserID)
-	if err != nil {
-		return fmt.Errorf("open dm: %w", err)
-	}
+// HandleSlashCommand processes the /digest command via response_url.
+func (d *DigestService) HandleSlashCommand(ctx context.Context, cmd *slack.SlashCommand, user *domain.User, responseURL string) error {
+	// Immediately acknowledge
+	_ = d.slack.PostWebhook(responseURL, []slack.Block{
+		slack.NewSectionBlock(
+			slack.NewTextBlockObject("mrkdwn", "📬 Building your digest...", false, false),
+			nil, nil,
+		),
+	}, "Building digest...")
 
-	// Fetch recent user messages via Slack Search API for the on-demand digest
 	recentMessages, err := d.slack.SearchMessages(
 		fmt.Sprintf("from:@%s OR to:@%s after:today", cmd.UserID, cmd.UserID),
 		slack.SearchParameters{Sort: "timestamp", Count: 25, SortDirection: "desc"},
@@ -66,26 +67,25 @@ func (d *DigestService) HandleSlashCommand(ctx context.Context, cmd *slack.Slash
 		}
 	}
 
-	digestSummary := "No recent mentions found."
+	digestSummary := "No recent mentions found today."
 	if len(digestItems) > 0 {
 		digestSummary = strings.Join(digestItems, "\n")
 	}
 
 	blocks := []slack.Block{
+		slack.NewHeaderBlock(
+			slack.NewTextBlockObject("plain_text", "📬 On-Demand Digest", true, false),
+		),
 		slack.NewSectionBlock(
 			slack.NewTextBlockObject("mrkdwn",
-				fmt.Sprintf("📬 *On-Demand Digest*\n\nHere are your recent mentions today:\n\n%s\n\nUse `/digest` anytime or set Quiet Hours in preferences for automatic delivery.", digestSummary),
+				fmt.Sprintf("*Recent mentions today:*\n\n%s\n\n_Use `/digest` anytime or set Quiet Hours in preferences for automatic delivery._", digestSummary),
 				false, false,
 			),
 			nil, nil,
 		),
-		slack.NewActionBlock("digest_actions",
-			slack.NewButtonBlockElement("digest_update_prefs", "prefs", slack.NewTextBlockObject("plain_text", "Update Preferences", false, true)).WithStyle("primary"),
-			slack.NewButtonBlockElement("digest_open_slack", "slack", slack.NewTextBlockObject("plain_text", "Open Slack", false, true)),
-		),
 	}
 
-	return d.slack.PostMessage(dmChannel, blocks, "On-Demand Digest")
+	return d.slack.PostWebhook(responseURL, blocks, "On-Demand Digest")
 }
 
 // SendScheduledDigest sends a digest to a specific user (called by the worker).

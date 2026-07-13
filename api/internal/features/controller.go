@@ -110,14 +110,8 @@ func (c *Controller) HandleMessage(ctx context.Context, event *slackevents.Messa
 
 // handleDirectMessage handles DMs sent to Signal
 func (c *Controller) handleDirectMessage(ctx context.Context, event *slackevents.MessageEvent, user *domain.User) error {
-	// For now, just respond with help
-	dmChannel, err := c.slack.OpenDMChannel(user.SlackUserID)
-	if err != nil {
-		return fmt.Errorf("open dm: %w", err)
-	}
-
-	// Send help message
-	return c.slack.PostMessage(dmChannel, buildHelpBlocks(), "Signal Help")
+	// Reply directly in the DM channel (event.Channel IS the DM channel already)
+	return c.slack.PostMessage(event.Channel, buildHelpBlocks(), "Signal Help")
 }
 
 // HandleAppMention handles when Signal is @mentioned.
@@ -172,26 +166,50 @@ func (c *Controller) HandleBlockAction(ctx context.Context, action *slack.Intera
 }
 
 // HandleCommand routes slash commands to features.
-func (c *Controller) HandleCommand(ctx context.Context, cmd *slack.SlashCommand, user *domain.User) error {
+func (c *Controller) HandleCommand(ctx context.Context, cmd *slack.SlashCommand, user *domain.User, responseURL string) error {
+	slog.Info("📝 handling slash command",
+		"command", cmd.Command,
+		"user", cmd.UserID,
+		"text", cmd.Text,
+		"has_response_url", responseURL != "")
+
 	user, err := c.ensureUser(ctx, user)
 	if err != nil {
+		slog.Error("ensureUser failed", "error", err)
 		return err
 	}
 
+	slog.Info("✅ user ensured", "slack_id", user.SlackUserID)
+
+	var handlerErr error
 	switch cmd.Command {
 	case "/signal":
-		return c.handleOpenPreferences(ctx, cmd, user)
+		slog.Info("routing to handleOpenPreferences")
+		handlerErr = c.handleOpenPreferences(ctx, cmd, user, responseURL)
 	case "/translate":
-		return c.translator.HandleSlashCommand(ctx, cmd, user)
+		slog.Info("routing to translator")
+		handlerErr = c.translator.HandleSlashCommand(ctx, cmd, user, responseURL)
 	case "/catchup":
-		return c.catchup.HandleSlashCommand(ctx, cmd, user)
+		slog.Info("routing to catchup")
+		handlerErr = c.catchup.HandleSlashCommand(ctx, cmd, user, responseURL)
 	case "/focus":
-		return c.deepWork.HandleSlashCommand(ctx, cmd, user)
+		slog.Info("routing to deepwork")
+		handlerErr = c.deepWork.HandleSlashCommand(ctx, cmd, user, responseURL)
 	case "/digest":
-		return c.digest.HandleSlashCommand(ctx, cmd, user)
+		slog.Info("routing to digest")
+		handlerErr = c.digest.HandleSlashCommand(ctx, cmd, user, responseURL)
 	default:
+		slog.Warn("unknown command", "command", cmd.Command)
 		return nil
 	}
+
+	if handlerErr != nil {
+		slog.Error("❌ command handler failed", "command", cmd.Command, "error", handlerErr)
+		return handlerErr
+	}
+
+	slog.Info("✅ command handled successfully", "command", cmd.Command)
+	return nil
 }
 
 // HandleAppHomeOpened publishes the App Home view with user preferences.
@@ -218,36 +236,32 @@ func (c *Controller) ensureUser(ctx context.Context, user *domain.User) (*domain
 		return user, fmt.Errorf("user has no slack_user_id")
 	}
 
-	existing, err := c.userRepo.GetBySlackID(ctx, user.SlackUserID, user.SlackTeamID)
-	if err != nil {
-		// User doesn't exist, create new user with default neurotype
-		newUser := &domain.User{
-			SlackUserID: user.SlackUserID,
-			SlackTeamID: user.SlackTeamID,
-			Neurotype:   "unspecified", // Default neurotype to satisfy DB constraint
+	// Use Upsert — no more duplicate key errors ever
+	newUser := &domain.User{
+		SlackUserID: user.SlackUserID,
+		SlackTeamID: user.SlackTeamID,
+		Neurotype:   "unspecified",
+	}
+	if err := c.userRepo.Upsert(ctx, newUser); err != nil {
+		// Upsert failed (very unlikely), fall back to get
+		if existing, fetchErr := c.userRepo.GetBySlackID(ctx, user.SlackUserID, user.SlackTeamID); fetchErr == nil {
+			return existing, nil
 		}
-		if err := c.userRepo.Create(ctx, newUser); err != nil {
-			// Duplicate key error means user was created by another request
-			// Try to fetch again
-			if existing, fetchErr := c.userRepo.GetBySlackID(ctx, user.SlackUserID, user.SlackTeamID); fetchErr == nil {
-				return existing, nil
-			}
-			// If we still can't get the user, log but return the basic user object
-			// so features can still work (just without persistence)
-			slog.Warn("failed to create user in database, using in-memory user", "error", err, "slack_user_id", user.SlackUserID)
-			return newUser, nil // Return nil error to allow features to work
-		}
+		slog.Warn("upsert failed, using in-memory user", "error", err, "slack_user_id", user.SlackUserID)
 		return newUser, nil
 	}
-	return existing, nil
+	return newUser, nil
 }
 
-func (c *Controller) handleOpenPreferences(ctx context.Context, cmd *slack.SlashCommand, user *domain.User) error {
-	dmChannel, err := c.slack.OpenDMChannel(user.SlackUserID)
+func (c *Controller) handleOpenPreferences(ctx context.Context, cmd *slack.SlashCommand, user *domain.User, responseURL string) error {
+	slog.Info("🔧 sending help via response_url", "user_id", user.SlackUserID)
+	err := c.slack.PostWebhook(responseURL, buildHelpBlocks(), "Signal Help")
 	if err != nil {
-		return fmt.Errorf("open dm: %w", err)
+		slog.Error("❌ failed to post help via webhook", "error", err)
+		return fmt.Errorf("post webhook: %w", err)
 	}
-	return c.slack.PostMessage(dmChannel, buildHelpBlocks(), "Signal Help")
+	slog.Info("✅ help message sent via response_url")
+	return nil
 }
 
 func buildHelpBlocks() []slack.Block {
@@ -318,6 +332,7 @@ func isDeepWorkAction(actionID string) bool {
 // SlackAPI provides access to the Slack API for features.
 type SlackAPI interface {
 	PostMessage(channelID string, blocks []slack.Block, text string) error
+	PostWebhook(responseURL string, blocks []slack.Block, text string) error
 	PostEphemeral(channelID, userID string, blocks []slack.Block, text string) error
 	OpenDMChannel(userID string) (string, error)
 	GetUser(userID string) (*slack.User, error)

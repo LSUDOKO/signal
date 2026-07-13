@@ -95,9 +95,10 @@ func main() {
 	if cfg.Slack.UserToken != "" {
 		userSlackClient := signalSlack.NewAPIClientWithToken(cfg.Slack.UserToken)
 		rtsSearcher = rts.NewSearcher(userSlackClient)
+		// Also set user API on the slack handler for user-scoped calls (status updates)
+		slackHandler.SetUserAPI(userSlackClient)
 		slog.Info("rts searcher initialized with user token")
 	} else {
-		// Fallback to bot token (will fail for RTS but allows app to run)
 		rtsSearcher = rts.NewSearcher(slackHandler.GetAPI())
 		slog.Warn("rts searcher using bot token (RTS will not work without user token)")
 	}

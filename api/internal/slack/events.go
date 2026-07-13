@@ -16,6 +16,7 @@ import (
 type EventHandler struct {
 	client      *socketmode.Client
 	api         *slack.Client
+	userAPI     *slack.Client // User token client for user-scoped APIs (status, search)
 	botUserID   string
 	botUserName string
 	featureCtrl FeatureController
@@ -26,7 +27,7 @@ type FeatureController interface {
 	HandleMessage(ctx context.Context, event *slackevents.MessageEvent, user *domain.User, teamID string) error
 	HandleAppMention(ctx context.Context, event *slackevents.AppMentionEvent, user *domain.User, teamID string) error
 	HandleBlockAction(ctx context.Context, action *slack.InteractionCallback, user *domain.User, teamID string) error
-	HandleCommand(ctx context.Context, cmd *slack.SlashCommand, user *domain.User) error
+	HandleCommand(ctx context.Context, cmd *slack.SlashCommand, user *domain.User, responseURL string) error
 	HandleAppHomeOpened(ctx context.Context, event *slackevents.AppHomeOpenedEvent, user *domain.User, teamID string) error
 }
 
@@ -244,12 +245,8 @@ func (h *EventHandler) handleSlashCommand(ctx context.Context, se socketmode.Eve
 		return
 	}
 
-	// Acknowledge immediately with an ephemeral "processing" message
-	// (Slack requires a response within 3 seconds or it shows "app did not respond")
-	h.client.Ack(*se.Request, map[string]interface{}{
-		"response_type": "ephemeral",
-		"text":          "⏳ Working on your request...",
-	})
+	// Acknowledge immediately — blank ack is fine since we reply via response_url
+	h.client.Ack(*se.Request)
 
 	if h.featureCtrl == nil {
 		return
@@ -261,24 +258,69 @@ func (h *EventHandler) handleSlashCommand(ctx context.Context, se socketmode.Eve
 	}
 
 	// Process the command asynchronously — the ack already confirmed receipt
-	// to Slack, and the final result will be posted via chat.postMessage
+	// to Slack, and the final result will be posted via response_url webhook
 	// by the feature handler. Running in a goroutine keeps the event loop
 	// responsive so Slack doesn't drop the socket connection.
 	asyncCtx := context.WithoutCancel(ctx)
 	cmdCopy := cmd
+	responseURL := cmd.ResponseURL
 	go func() {
-		if err := h.featureCtrl.HandleCommand(asyncCtx, &cmdCopy, user); err != nil {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("💥 PANIC in command handler", "panic", r, "command", cmdCopy.Command)
+			}
+		}()
+
+		slog.Info("🚀 starting command handler goroutine", "command", cmdCopy.Command)
+
+		if err := h.featureCtrl.HandleCommand(asyncCtx, &cmdCopy, user, responseURL); err != nil {
 			slog.Error("error handling command", "error", err, "command", cmdCopy.Command)
+			// Try to send error back via response_url
+			if responseURL != "" {
+				_ = h.PostWebhook(responseURL, []slack.Block{
+					slack.NewSectionBlock(
+						slack.NewTextBlockObject("mrkdwn", "❌ Something went wrong. Please try again.", false, false),
+						nil, nil,
+					),
+				}, "Error")
+			}
+			return
 		}
+
+		slog.Info("✅ command handler goroutine complete", "command", cmdCopy.Command)
 	}()
 }
 
 // PostMessage sends a message to a Slack channel.
 func (h *EventHandler) PostMessage(channelID string, blocks []slack.Block, text string) error {
-	_, _, err := h.api.PostMessage(channelID,
+	slog.Info("📤 PostMessage called", "channel_id", channelID, "text_preview", text)
+	channel, ts, err := h.api.PostMessage(channelID,
 		slack.MsgOptionBlocks(blocks...),
 		slack.MsgOptionText(text, false),
 	)
+	if err != nil {
+		slog.Error("❌ PostMessage FAILED", "error", err, "channel_id", channelID)
+	} else {
+		slog.Info("✅ PostMessage SUCCESS", "channel", channel, "ts", ts)
+	}
+	return err
+}
+
+// PostWebhook sends a message via Slack's response_url webhook.
+// This requires NO token and NO scopes — works for all slash command replies.
+func (h *EventHandler) PostWebhook(responseURL string, blocks []slack.Block, text string) error {
+	slog.Info("📤 PostWebhook called", "url_len", len(responseURL))
+	msg := &slack.WebhookMessage{
+		Text:         text,
+		Blocks:       &slack.Blocks{BlockSet: blocks},
+		ResponseType: "ephemeral",
+	}
+	err := slack.PostWebhookContext(context.Background(), responseURL, msg)
+	if err != nil {
+		slog.Error("❌ PostWebhook FAILED", "error", err)
+	} else {
+		slog.Info("✅ PostWebhook SUCCESS")
+	}
 	return err
 }
 
@@ -293,15 +335,18 @@ func (h *EventHandler) PostEphemeral(channelID, userID string, blocks []slack.Bl
 
 // OpenDMChannel opens (or finds) a DM channel with a user.
 func (h *EventHandler) OpenDMChannel(userID string) (string, error) {
+	slog.Info("📬 OpenDMChannel called", "user_id", userID)
 	channel, _, _, err := h.api.OpenConversation(
 		&slack.OpenConversationParameters{
 			Users: []string{userID},
 		},
 	)
 	if err != nil {
+		slog.Error("❌ OpenDMChannel FAILED", "error", err, "user_id", userID)
 		return "", fmt.Errorf("open dm: %w", err)
 	}
 	if channel != nil {
+		slog.Info("✅ OpenDMChannel success", "channel_id", channel.ID)
 		return channel.ID, nil
 	}
 	return "", fmt.Errorf("open dm: no channel returned")
@@ -335,10 +380,19 @@ func (h *EventHandler) SearchMessages(query string, params slack.SearchParameter
 	return result, nil
 }
 
-// SetUserStatus sets a user's Slack status.
+// SetUserAPI sets the user-token client used for user-scoped APIs like status updates.
+func (h *EventHandler) SetUserAPI(client *slack.Client) {
+	h.userAPI = client
+}
+
+// SetUserStatus sets a user's Slack status using the user token.
 func (h *EventHandler) SetUserStatus(userID, statusText, statusEmoji string, expiration int) error {
-	_ = userID // SetUserCustomStatus applies to the signed-in user's status
-	return h.api.SetUserCustomStatus(statusText, statusEmoji, int64(expiration))
+	client := h.userAPI
+	if client == nil {
+		slog.Warn("no user token available for SetUserStatus, skipping")
+		return nil // Silently skip — not a fatal error
+	}
+	return client.SetUserCustomStatus(statusText, statusEmoji, int64(expiration))
 }
 
 // PublishView publishes a Home tab view for a user.

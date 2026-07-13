@@ -33,7 +33,7 @@ func NewClient(botToken, appToken string, featureCtrl FeatureController) (*Event
 }
 
 // NewAPIClientWithToken creates a standalone Slack API client with a specific token.
-// Used for RTS search which requires a user token.
+// Used for RTS search and user-scoped APIs which require a user token.
 func NewAPIClientWithToken(token string) *slack.Client {
 	return slack.New(token)
 }

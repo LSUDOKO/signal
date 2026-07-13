@@ -1,0 +1,70 @@
+services:
+  # Main API + Slack bot (Socket Mode)
+  - type: web
+    name: signal-api
+    runtime: go
+    rootDir: api
+    buildCommand: go build -o signal ./cmd/api/main.go
+    startCommand: ./signal
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_LOG_LEVEL
+        value: info
+      - key: SLACK_BOT_TOKEN
+        sync: false
+      - key: SLACK_USER_TOKEN
+        sync: false
+      - key: SLACK_APP_TOKEN
+        sync: false
+      - key: SLACK_SIGNING_SECRET
+        sync: false
+      - key: SLACK_CLIENT_ID
+        sync: false
+      - key: SLACK_CLIENT_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: llama-3.3-70b-versatile
+      - key: OPENAI_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_ORG
+        sync: false
+      - key: NOTION_TOKEN
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: signal-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: signal-redis
+          type: redis
+          property: connectionString
+
+  # MCP Server (Calendar integration)
+  - type: worker
+    name: signal-mcp
+    runtime: go
+    rootDir: api
+    buildCommand: go build -o signal-mcp ./cmd/mcp-server/main.go
+    startCommand: ./signal-mcp
+    envVars:
+      - key: MCP_PORT
+        value: 3001
+      - key: MCP_CALENDAR_CREDENTIALS_PATH
+        sync: false
+
+databases:
+  - name: signal-postgres
+    databaseName: signal
+    user: signal
+    plan: free
+
+  - name: signal-redis
+    plan: free

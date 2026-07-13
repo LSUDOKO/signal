@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/sashabaranov/go-openai"
 )
 
 // Server is the HTTP API server.
@@ -24,6 +25,8 @@ type Server struct {
 	router    *chi.Mux
 	userRepo  store.UserRepository
 	prefsRepo store.PreferencesRepository
+	aiClient  *openai.Client
+	aiModel   string
 	config    *Config
 }
 
@@ -36,11 +39,13 @@ type Config struct {
 }
 
 // NewServer creates a new HTTP API server.
-func NewServer(cfg *Config, userRepo store.UserRepository, prefsRepo store.PreferencesRepository) *Server {
+func NewServer(cfg *Config, userRepo store.UserRepository, prefsRepo store.PreferencesRepository, aiClient *openai.Client, aiModel string) *Server {
 	s := &Server{
 		router:    chi.NewRouter(),
 		userRepo:  userRepo,
 		prefsRepo: prefsRepo,
+		aiClient:  aiClient,
+		aiModel:   aiModel,
 		config:    cfg,
 	}
 	s.registerRoutes()
@@ -76,6 +81,9 @@ func (s *Server) registerRoutes() {
 		r.Put("/user/by-slack", s.handleUpdateUserBySlack)
 		r.Get("/preferences/by-slack", s.handleGetPreferencesBySlack)
 		r.Put("/preferences/by-slack", s.handleUpdatePreferencesBySlack)
+
+		// AI chat endpoint — used by the signal-agent Bolt app
+		r.Post("/ai/chat", s.handleAIChat)
 	})
 
 	// Prometheus metrics (real metrics defined in observability/metrics.go)
@@ -380,6 +388,59 @@ func (s *Server) handleUpdatePreferencesBySlack(w http.ResponseWriter, r *http.R
 
 	slog.Info("preferences updated via slack", "user", user.ID)
 	respondJSON(w, http.StatusOK, prefs)
+}
+
+func (s *Server) handleAIChat(w http.ResponseWriter, r *http.Request) {
+	if s.aiClient == nil {
+		respondError(w, http.StatusServiceUnavailable, "AI client not configured")
+		return
+	}
+
+	var req struct {
+		SystemPrompt string `json:"system_prompt"`
+		UserPrompt   string `json:"user_prompt"`
+		MaxTokens    int    `json:"max_tokens"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.SystemPrompt == "" {
+		respondError(w, http.StatusBadRequest, "system_prompt is required")
+		return
+	}
+	if req.UserPrompt == "" {
+		respondError(w, http.StatusBadRequest, "user_prompt is required")
+		return
+	}
+	if req.MaxTokens <= 0 {
+		req.MaxTokens = 1000
+	}
+
+	resp, err := s.aiClient.CreateChatCompletion(r.Context(), openai.ChatCompletionRequest{
+		Model: s.aiModel,
+		Messages: []openai.ChatCompletionMessage{
+			{Role: openai.ChatMessageRoleSystem, Content: req.SystemPrompt},
+			{Role: openai.ChatMessageRoleUser, Content: req.UserPrompt},
+		},
+		Temperature: 0.3,
+		MaxTokens:   req.MaxTokens,
+	})
+	if err != nil {
+		slog.Error("AI chat failed", "error", err)
+		respondError(w, http.StatusInternalServerError, "AI processing failed")
+		return
+	}
+
+	if len(resp.Choices) == 0 {
+		respondError(w, http.StatusInternalServerError, "no response from AI")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{
+		"text": resp.Choices[0].Message.Content,
+	})
 }
 
 func respondJSON(w http.ResponseWriter, status int, data interface{}) {

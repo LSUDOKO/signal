@@ -71,22 +71,21 @@ type MCPConfig struct {
 func Load() (*Config, error) {
 	var cfg Config
 
-	// Try loading .env file (ignore error if not present)
-	_ = cleanenv.ReadEnv(&cfg)
+	// Read .env file — try current dir and parent dir (since binaries run from api/)
+	envPaths := []string{".env", "../.env"}
+	for _, p := range envPaths {
+		if _, err := os.Stat(p); err == nil {
+			if err := cleanenv.ReadConfig(p, &cfg); err != nil {
+				slog.Warn("could not read .env file", "path", p, "error", err)
+			}
+			break
+		}
+	}
 
-	// Override with environment variables
+	// Environment variables override .env file values
 	err := cleanenv.ReadEnv(&cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-
-	// Also check .env file for development
-	if cfg.App.Env == "development" {
-		if _, err := os.Stat(".env"); err == nil {
-			if err := cleanenv.ReadConfig(".env", &cfg); err != nil {
-				slog.Warn("could not read .env file", "error", err)
-			}
-		}
 	}
 
 	return &cfg, nil

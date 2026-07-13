@@ -127,13 +127,13 @@ func main() {
 		}
 	}()
 
-	// Start HTTP server
+	// Start HTTP server (pass AI client so Bolt app can call /api/v1/ai/chat)
 	httpServer := httpapi.NewServer(&httpapi.Config{
 		Port:              fmt.Sprintf("%d", cfg.App.Port),
 		SlackClientID:     cfg.Slack.ClientID,
 		SlackClientSecret: cfg.Slack.ClientSecret,
 		FrontendURL:       cfg.App.FrontendURL,
-	}, userRepo, prefsRepo)
+	}, userRepo, prefsRepo, aiClient.RawClient(), cfg.OpenAI.Model)
 
 	go func() {
 		if err := httpServer.Run(ctx); err != nil {

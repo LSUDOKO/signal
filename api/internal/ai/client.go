@@ -257,6 +257,11 @@ func (c *Client) Chat(ctx context.Context, systemPrompt, userPrompt string, maxT
 	return extractContent(resp)
 }
 
+// RawClient returns the underlying OpenAI client for use by the HTTP API layer.
+func (c *Client) RawClient() *openai.Client {
+	return c.client
+}
+
 // extractContent safely extracts the first choice's content, guarding against empty choices.
 func extractContent(resp openai.ChatCompletionResponse) (string, error) {
 	if len(resp.Choices) == 0 {

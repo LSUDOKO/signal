@@ -39,6 +39,7 @@ Signal is a Slack agent that transforms overwhelming, ambiguous, and interruptiv
 Everything happens inside Slack. One `/signal` command to see everything it can do.
 
 ---
+<img width="1536" height="1024" alt="ChatGPT Image Jul 14, 2026, 02_17_05 AM" src="https://github.com/user-attachments/assets/3ddd7711-f83e-4723-a49c-d17972ea002e" />
 
 ## Features
 
@@ -199,6 +200,7 @@ Signal remembers your last 10 interactions (7-day rolling window, stored in Redi
 ---
 
 ## Architecture
+<img width="2752" height="1536" alt="Signal_AI_Slack_Architecture_Dia…_202607140222" src="https://github.com/user-attachments/assets/99282deb-8cd3-459d-b965-55fff951c8a4" />
 
 ```
 ┌─────────────────────────────────────────────────────────────┐

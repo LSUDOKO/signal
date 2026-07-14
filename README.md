@@ -1,17 +1,11 @@
 <div align="center">
+  
+<img width="250" height="250" alt="ChatGPT Image Jul 12, 2026, 11_36_37 AM" src="https://github.com/user-attachments/assets/c2022463-dc98-450f-ae73-b4c909d14237" />
 
-# 🧘 Signal
+# Signal
 ### Calm Slack for Neurodivergent Professionals
 
 **The first Slack agent designed for cognitive accessibility**
-
-Built for the [Slack Agent Builder Challenge](https://slack-agent-builder-challenge.devpost.com/) · July 2026
-
-[![Slack Agent for Good](https://img.shields.io/badge/Track-Slack%20Agent%20for%20Good-4f46e5?style=flat-square)](https://slack.com)
-[![Go](https://img.shields.io/badge/Go-1.22-00ADD8?style=flat-square&logo=go)](https://golang.org)
-[![Groq AI](https://img.shields.io/badge/AI-Groq%20LLaMA%203.3-f97316?style=flat-square)](https://groq.com)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-
 </div>
 
 ---

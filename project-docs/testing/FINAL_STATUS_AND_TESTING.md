@@ -361,10 +361,10 @@ These don't affect the core demo. All critical slash commands work perfectly.
 
 1. **Check logs** — Look for ERROR lines
 2. **Restart server** — `Ctrl+C` then `go run ./cmd/api/main.go`
-3. **Verify tokens** — Run `./test_slack_token.sh`
+3. **Verify tokens** — Run `../../scripts/test/test_slack_token.sh`
 4. **Check guides:**
-   - `SLACK_EVENT_SUBSCRIPTIONS_FIX.md`
-   - `WORKING_FEATURES_TEST.md`
+   - `../setup/SLACK_EVENT_SUBSCRIPTIONS_FIX.md`
+   - `./WORKING_FEATURES_TEST.md`
 
 **Last resort:**
 - Create GitHub issue

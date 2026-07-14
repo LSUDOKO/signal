@@ -220,9 +220,9 @@ When recording your demo video for the hackathon:
 
 ## Files Created for Debugging
 
-1. `test_slack_token.sh` - Validate bot token
-2. `SLACK_EVENT_SUBSCRIPTIONS_FIX.md` - Configuration guide
-3. `watch_logs.sh` - Real-time log monitoring
+1. `../../scripts/test/test_slack_token.sh` - Validate bot token
+2. `../setup/SLACK_EVENT_SUBSCRIPTIONS_FIX.md` - Configuration guide
+3. `../../scripts/dev/watch_logs.sh` - Real-time log monitoring
 4. This file - Testing guide
 
 ---

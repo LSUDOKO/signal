@@ -97,7 +97,7 @@ if [ $passed -eq $total ]; then
   echo "Your Signal bot is fully functional!"
   echo ""
   echo "Next steps:"
-  echo "1. Record demo video (see FINAL_STATUS_AND_TESTING.md)"
+  echo "1. Record demo video (see ../../project-docs/testing/FINAL_STATUS_AND_TESTING.md)"
   echo "2. Create architecture diagram"
   echo "3. Submit to Devpost"
   echo ""
@@ -111,7 +111,7 @@ else
   echo ""
   echo "❌ CRITICAL ISSUES"
   echo "Please check server logs and review:"
-  echo "  - FINAL_STATUS_AND_TESTING.md"
-  echo "  - SLACK_EVENT_SUBSCRIPTIONS_FIX.md"
+  echo "  - ../../project-docs/testing/FINAL_STATUS_AND_TESTING.md"
+  echo "  - ../../project-docs/setup/SLACK_EVENT_SUBSCRIPTIONS_FIX.md"
   echo ""
 fi

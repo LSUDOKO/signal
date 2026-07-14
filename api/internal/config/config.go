@@ -113,8 +113,8 @@ func Load() (*Config, error) {
 		// because pgx can accept a full DSN. We expose it via RailwayDSN().
 		cfg.DB.RailwayURL = dbURL
 	}
-	if redisURL := os.Getenv("REDIS_URL"); redisURL != "" && cfg.Redis.Addr == "localhost:6379" {
-		cfg.Redis.Addr = redisURL // go-redis accepts full redis:// URL as Addr too
+	if redisURL := os.Getenv("REDIS_URL"); redisURL != "" {
+		cfg.Redis.Addr = redisURL // store full URL, main.go handles the prefix check
 	}
 	// Railway injects PORT
 	if port := os.Getenv("PORT"); port != "" {
